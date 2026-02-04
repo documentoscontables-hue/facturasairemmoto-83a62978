@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import logo from '@/assets/logo.png';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
@@ -60,11 +61,8 @@ export default function Auth() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-8">
-        <div className="flex flex-col items-center space-y-2">
-          <div className="flex items-center justify-center w-16 h-16 rounded-2xl gradient-primary">
-            <FileText className="w-8 h-8 text-primary-foreground" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">FacturaAI</h1>
+        <div className="flex flex-col items-center space-y-4">
+          <img src={logo} alt="Remmoto" className="h-12 w-auto" />
           <p className="text-muted-foreground text-center">
             Gestión inteligente de facturas con clasificación automática
           </p>

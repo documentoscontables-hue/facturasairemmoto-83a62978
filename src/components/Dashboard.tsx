@@ -8,7 +8,8 @@ import { InvoiceFilters } from './InvoiceFilters';
 import { AdminPanel } from './AdminPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { FileText, Download, LogOut, Loader2, FolderOpen, Shield } from 'lucide-react';
+import { Download, LogOut, Loader2, FolderOpen, Shield } from 'lucide-react';
+import logo from '@/assets/logo.png';
 import { InvoiceType, OperationType, ClassificationStatus } from '@/types/invoice';
 import JSZip from 'jszip';
 import { supabase } from '@/integrations/supabase/client';
@@ -118,13 +119,8 @@ export function Dashboard() {
       <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center">
-              <FileText className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <div>
-              <h1 className="font-bold text-lg">FacturasAI Remmoto</h1>
-              <p className="text-xs text-muted-foreground">{user?.email}</p>
-            </div>
+            <img src={logo} alt="Remmoto" className="h-8 w-auto" />
+            <p className="text-xs text-muted-foreground">{user?.email}</p>
           </div>
           <div className="flex items-center gap-2">
             {isAdmin && (
