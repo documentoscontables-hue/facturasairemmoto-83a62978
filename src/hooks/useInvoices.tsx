@@ -1,12 +1,20 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Invoice, InvoiceType, OperationType, ClassificationStatus } from '@/types/invoice';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 
+export interface ClassificationProgress {
+  current: number;
+  total: number;
+  currentFileName?: string;
+}
+
 export function useInvoices() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const [classificationProgress, setClassificationProgress] = useState<ClassificationProgress | null>(null);
 
   const query = useQuery({
     queryKey: ['invoices', user?.id],
@@ -121,9 +129,19 @@ export function useInvoices() {
   });
 
   const classifyAllMutation = useMutation({
-    mutationFn: async (invoiceIds: string[]) => {
+    mutationFn: async ({ invoiceIds, invoices }: { invoiceIds: string[]; invoices: Invoice[] }) => {
       const results = [];
-      for (const id of invoiceIds) {
+      setClassificationProgress({ current: 0, total: invoiceIds.length });
+      
+      for (let i = 0; i < invoiceIds.length; i++) {
+        const id = invoiceIds[i];
+        const invoice = invoices.find(inv => inv.id === id);
+        setClassificationProgress({ 
+          current: i + 1, 
+          total: invoiceIds.length,
+          currentFileName: invoice?.file_name
+        });
+        
         try {
           const { data, error } = await supabase.functions.invoke('classify-invoice', {
             body: { invoiceId: id },
@@ -138,6 +156,7 @@ export function useInvoices() {
       return results;
     },
     onSuccess: (results) => {
+      setClassificationProgress(null);
       const successful = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success).length;
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
@@ -148,6 +167,7 @@ export function useInvoices() {
       }
     },
     onError: (error) => {
+      setClassificationProgress(null);
       toast.error(`Error en clasificación: ${error.message}`);
     },
   });
@@ -182,6 +202,7 @@ export function useInvoices() {
     classifyAllInvoices: classifyAllMutation.mutateAsync,
     isClassifying: classifyMutation.isPending,
     isClassifyingAll: classifyAllMutation.isPending,
+    classificationProgress,
     deleteInvoice: deleteMutation.mutateAsync,
   };
 }
