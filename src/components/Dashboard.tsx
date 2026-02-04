@@ -113,7 +113,7 @@ export function Dashboard() {
               <FileText className="w-5 h-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="font-bold text-lg">FacturaAI</h1>
+              <h1 className="font-bold text-lg">FacturasAI Remmoto</h1>
               <p className="text-xs text-muted-foreground">{user?.email}</p>
             </div>
           </div>

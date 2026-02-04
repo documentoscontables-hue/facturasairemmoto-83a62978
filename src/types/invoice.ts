@@ -3,24 +3,28 @@ export type InvoiceType = 'emitida' | 'recibida';
 export type ClassificationStatus = 'pending' | 'classified' | 'error';
 
 export type OperationType = 
-  | 'adquisiciones_intracomunitarias'
-  | 'intereses_iva_deducible'
-  | 'gastos_generales'
-  | 'servicios_profesionales'
-  | 'suministros'
-  | 'alquileres'
-  | 'inversiones'
-  | 'otros';
+  | 'interiores_iva_deducible'
+  | 'facturas_compensaciones_agrarias'
+  | 'adquisiciones_intracomunitarias_bienes'
+  | 'inversion_sujeto_pasivo'
+  | 'iva_no_deducible'
+  | 'adquisiciones_intracomunitarias_servicios'
+  | 'importaciones'
+  | 'suplidos'
+  | 'kit_digital'
+  | 'otro';
 
 export const OPERATION_TYPE_LABELS: Record<OperationType, string> = {
-  adquisiciones_intracomunitarias: 'Adquisiciones Intracomunitarias',
-  intereses_iva_deducible: 'Intereses IVA Deducible',
-  gastos_generales: 'Gastos Generales',
-  servicios_profesionales: 'Servicios Profesionales',
-  suministros: 'Suministros',
-  alquileres: 'Alquileres',
-  inversiones: 'Inversiones',
-  otros: 'Otros',
+  interiores_iva_deducible: 'Interiores IVA Deducible',
+  facturas_compensaciones_agrarias: 'Facturas Compensaciones Agrarias',
+  adquisiciones_intracomunitarias_bienes: 'Adquisiciones Intracomunitarias de Bienes',
+  inversion_sujeto_pasivo: 'Inversión del Sujeto Pasivo',
+  iva_no_deducible: 'IVA No Deducible',
+  adquisiciones_intracomunitarias_servicios: 'Adquisiciones Intracomunitarias de Servicios',
+  importaciones: 'Importaciones',
+  suplidos: 'Suplidos',
+  kit_digital: 'Kit Digital (Subvención)',
+  otro: 'Otro',
 };
 
 export interface Invoice {
@@ -29,6 +33,7 @@ export interface Invoice {
   file_name: string;
   file_path: string;
   file_type: 'pdf' | 'image';
+  client_name: string | null;
   invoice_type: InvoiceType | null;
   operation_type: OperationType | null;
   classification_status: ClassificationStatus;
@@ -40,6 +45,8 @@ export interface Invoice {
       amount?: number;
       date?: string;
       invoice_number?: string;
+      emisor_nif?: string;
+      receptor_nif?: string;
     };
   } | null;
   created_at: string;

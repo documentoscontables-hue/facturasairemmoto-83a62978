@@ -52,6 +52,9 @@ export function InvoiceCard({
               <div className="min-w-0">
                 <h3 className="font-medium truncate">{invoice.file_name}</h3>
                 <p className="text-sm text-muted-foreground">
+                  {invoice.client_name && (
+                    <span className="text-primary font-medium">{invoice.client_name} • </span>
+                  )}
                   {format(new Date(invoice.created_at), "d 'de' MMMM, yyyy", { locale: es })}
                 </p>
               </div>

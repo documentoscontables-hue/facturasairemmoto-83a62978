@@ -25,6 +25,7 @@ export function useInvoices() {
         operation_type: item.operation_type as OperationType | null,
         classification_status: item.classification_status as ClassificationStatus,
         file_type: item.file_type as 'pdf' | 'image',
+        client_name: (item as any).client_name as string | null,
         classification_details: item.classification_details as Invoice['classification_details'],
       })) as Invoice[];
     },
@@ -32,8 +33,9 @@ export function useInvoices() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: async (files: File[]) => {
+    mutationFn: async ({ files, clientName }: { files: File[]; clientName: string }) => {
       if (!user) throw new Error('Not authenticated');
+      if (!clientName.trim()) throw new Error('El nombre del cliente es requerido');
 
       const results = [];
       for (const file of files) {
@@ -60,6 +62,7 @@ export function useInvoices() {
             file_name: file.name,
             file_path: filePath,
             file_type: isPdf ? 'pdf' : 'image',
+            client_name: clientName.trim(),
           })
           .select()
           .single();
