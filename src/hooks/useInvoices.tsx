@@ -114,7 +114,38 @@ export function useInvoices() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
-      toast.success('Factura clasificada con IA');
+    },
+    onError: (error) => {
+      console.error('Error clasificando factura:', error.message);
+    },
+  });
+
+  const classifyAllMutation = useMutation({
+    mutationFn: async (invoiceIds: string[]) => {
+      const results = [];
+      for (const id of invoiceIds) {
+        try {
+          const { data, error } = await supabase.functions.invoke('classify-invoice', {
+            body: { invoiceId: id },
+          });
+          if (error) throw error;
+          results.push({ id, success: true, data });
+          queryClient.invalidateQueries({ queryKey: ['invoices'] });
+        } catch (err) {
+          results.push({ id, success: false, error: err });
+        }
+      }
+      return results;
+    },
+    onSuccess: (results) => {
+      const successful = results.filter(r => r.success).length;
+      const failed = results.filter(r => !r.success).length;
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      if (failed === 0) {
+        toast.success(`${successful} factura(s) clasificada(s) con IA`);
+      } else {
+        toast.warning(`${successful} clasificadas, ${failed} con errores`);
+      }
     },
     onError: (error) => {
       toast.error(`Error en clasificación: ${error.message}`);
@@ -148,7 +179,9 @@ export function useInvoices() {
     isUploading: uploadMutation.isPending,
     updateInvoice: updateMutation.mutateAsync,
     classifyInvoice: classifyMutation.mutateAsync,
+    classifyAllInvoices: classifyAllMutation.mutateAsync,
     isClassifying: classifyMutation.isPending,
+    isClassifyingAll: classifyAllMutation.isPending,
     deleteInvoice: deleteMutation.mutateAsync,
   };
 }
