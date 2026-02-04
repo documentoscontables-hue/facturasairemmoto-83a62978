@@ -14,18 +14,14 @@ import { useState } from 'react';
 
 interface InvoiceCardProps {
   invoice: Invoice;
-  onClassify: (id: string) => void;
   onUpdate: (id: string, invoice_type?: InvoiceType, operation_type?: OperationType) => void;
   onDelete: (id: string) => void;
-  isClassifying?: boolean;
 }
 
 export function InvoiceCard({ 
   invoice, 
-  onClassify, 
   onUpdate, 
   onDelete,
-  isClassifying 
 }: InvoiceCardProps) {
   const [expanded, setExpanded] = useState(false);
   
@@ -231,23 +227,6 @@ export function InvoiceCard({
             </div>
 
             <div className="flex gap-2 pt-1">
-              {invoice.classification_status === 'pending' && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => onClassify(invoice.id)}
-                  disabled={isClassifying}
-                  className="flex-1"
-                >
-                  {isClassifying ? (
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                  ) : (
-                    <Sparkles className="w-4 h-4 mr-2" />
-                  )}
-                  Clasificar con IA
-                </Button>
-              )}
-              
               {invoice.classification_status === 'classified' && (
                 <Button
                   size="sm"

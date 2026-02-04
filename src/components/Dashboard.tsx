@@ -8,7 +8,7 @@ import { InvoiceFilters } from './InvoiceFilters';
 import { AdminPanel } from './AdminPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Download, LogOut, Loader2, FolderOpen, Shield } from 'lucide-react';
+import { Download, LogOut, Loader2, FolderOpen, Shield, Sparkles } from 'lucide-react';
 import logo from '@/assets/logo.png';
 import { InvoiceType, OperationType, ClassificationStatus } from '@/types/invoice';
 import JSZip from 'jszip';
@@ -30,8 +30,8 @@ export function Dashboard() {
     uploadInvoices, 
     isUploading,
     updateInvoice,
-    classifyInvoice,
-    isClassifying,
+    classifyAllInvoices,
+    isClassifyingAll,
     deleteInvoice
   } = useInvoices();
 
@@ -41,7 +41,6 @@ export function Dashboard() {
     status: 'all',
   });
   const [isDownloading, setIsDownloading] = useState(false);
-  const [classifyingId, setClassifyingId] = useState<string | null>(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
 
   const filteredInvoices = useMemo(() => {
@@ -60,18 +59,22 @@ export function Dashboard() {
     pending: invoices.filter(i => i.classification_status === 'pending').length,
   }), [invoices]);
 
+  const pendingInvoices = useMemo(() => 
+    invoices.filter(i => i.classification_status === 'pending'),
+    [invoices]
+  );
+
   // Show admin panel if toggled (moved after all hooks)
   if (showAdminPanel && isAdmin) {
     return <AdminPanel onBack={() => setShowAdminPanel(false)} />;
   }
 
-  const handleClassify = async (id: string) => {
-    setClassifyingId(id);
-    try {
-      await classifyInvoice(id);
-    } finally {
-      setClassifyingId(null);
+  const handleClassifyAll = async () => {
+    if (pendingInvoices.length === 0) {
+      toast.error('No hay facturas pendientes para clasificar');
+      return;
     }
+    await classifyAllInvoices(pendingInvoices.map(i => i.id));
   };
 
   const handleDownloadZip = async () => {
@@ -175,18 +178,34 @@ export function Dashboard() {
           <div className="lg:col-span-2 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <InvoiceFilters filters={filters} onChange={setFilters} />
-              <Button 
-                variant="outline" 
-                onClick={handleDownloadZip}
-                disabled={isDownloading || filteredInvoices.length === 0}
-              >
-                {isDownloading ? (
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                ) : (
-                  <Download className="w-4 h-4 mr-2" />
+              <div className="flex gap-2">
+                {stats.pending > 0 && (
+                  <Button 
+                    onClick={handleClassifyAll}
+                    disabled={isClassifyingAll}
+                    className="gradient-primary"
+                  >
+                    {isClassifyingAll ? (
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    ) : (
+                      <Sparkles className="w-4 h-4 mr-2" />
+                    )}
+                    Clasificar todas ({stats.pending})
+                  </Button>
                 )}
-                Descargar ZIP
-              </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={handleDownloadZip}
+                  disabled={isDownloading || filteredInvoices.length === 0}
+                >
+                  {isDownloading ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    <Download className="w-4 h-4 mr-2" />
+                  )}
+                  Descargar ZIP
+                </Button>
+              </div>
             </div>
 
             {isLoading ? (
@@ -211,10 +230,8 @@ export function Dashboard() {
                   <InvoiceCard
                     key={invoice.id}
                     invoice={invoice}
-                    onClassify={handleClassify}
                     onUpdate={(id, type, op) => updateInvoice({ id, invoice_type: type, operation_type: op })}
                     onDelete={deleteInvoice}
-                    isClassifying={classifyingId === invoice.id}
                   />
                 ))}
               </div>
