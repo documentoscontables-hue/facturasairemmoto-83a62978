@@ -5,6 +5,7 @@ import { useAdmin } from '@/hooks/useAdmin';
 import { InvoiceUploader } from './InvoiceUploader';
 import { InvoiceCard } from './InvoiceCard';
 import { InvoiceFilters } from './InvoiceFilters';
+import { ClassificationProgress } from './ClassificationProgress';
 import { AdminPanel } from './AdminPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,6 +33,7 @@ export function Dashboard() {
     updateInvoice,
     classifyAllInvoices,
     isClassifyingAll,
+    classificationProgress,
     deleteInvoice
   } = useInvoices();
 
@@ -74,7 +76,10 @@ export function Dashboard() {
       toast.error('No hay facturas pendientes para clasificar');
       return;
     }
-    await classifyAllInvoices(pendingInvoices.map(i => i.id));
+    await classifyAllInvoices({ 
+      invoiceIds: pendingInvoices.map(i => i.id),
+      invoices: pendingInvoices
+    });
   };
 
   const handleDownloadZip = async () => {
@@ -179,17 +184,13 @@ export function Dashboard() {
             <div className="flex flex-wrap items-center justify-between gap-4">
               <InvoiceFilters filters={filters} onChange={setFilters} />
               <div className="flex gap-2">
-                {stats.pending > 0 && (
+                {stats.pending > 0 && !isClassifyingAll && (
                   <Button 
                     onClick={handleClassifyAll}
                     disabled={isClassifyingAll}
                     className="gradient-primary"
                   >
-                    {isClassifyingAll ? (
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    ) : (
-                      <Sparkles className="w-4 h-4 mr-2" />
-                    )}
+                    <Sparkles className="w-4 h-4 mr-2" />
                     Clasificar todas ({stats.pending})
                   </Button>
                 )}
@@ -207,6 +208,11 @@ export function Dashboard() {
                 </Button>
               </div>
             </div>
+
+            {/* Classification Progress */}
+            {classificationProgress && (
+              <ClassificationProgress progress={classificationProgress} />
+            )}
 
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
