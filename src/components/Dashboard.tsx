@@ -4,12 +4,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { useAdmin } from '@/hooks/useAdmin';
 import { InvoiceUploader } from './InvoiceUploader';
 import { InvoiceCard } from './InvoiceCard';
+import { InvoiceTable } from './InvoiceTable';
 import { InvoiceFilters } from './InvoiceFilters';
 import { ClassificationProgress } from './ClassificationProgress';
 import { AdminPanel } from './AdminPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Download, LogOut, Loader2, FolderOpen, Shield, Sparkles } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Download, LogOut, Loader2, FolderOpen, Shield, Sparkles, LayoutGrid, Table } from 'lucide-react';
 import logo from '@/assets/logo.png';
 import { InvoiceType, OperationType, ClassificationStatus } from '@/types/invoice';
 import JSZip from 'jszip';
@@ -46,6 +48,7 @@ export function Dashboard() {
   });
   const [isDownloading, setIsDownloading] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
 
   const filteredInvoices = useMemo(() => {
     return invoices.filter(invoice => {
@@ -184,7 +187,19 @@ export function Dashboard() {
           {/* Invoice List */}
           <div className="lg:col-span-2 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
-              <InvoiceFilters filters={filters} onChange={setFilters} />
+              <div className="flex items-center gap-4">
+                <InvoiceFilters filters={filters} onChange={setFilters} />
+                <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'cards' | 'table')}>
+                  <TabsList className="h-9">
+                    <TabsTrigger value="cards" className="px-3">
+                      <LayoutGrid className="w-4 h-4" />
+                    </TabsTrigger>
+                    <TabsTrigger value="table" className="px-3">
+                      <Table className="w-4 h-4" />
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
               <div className="flex gap-2">
                 {stats.pending > 0 && !isClassifyingAll && (
                   <Button 
@@ -232,7 +247,7 @@ export function Dashboard() {
                   </p>
                 </CardContent>
               </Card>
-            ) : (
+            ) : viewMode === 'cards' ? (
               <div className="space-y-4">
                 {filteredInvoices.map((invoice) => (
                   <InvoiceCard
@@ -254,6 +269,11 @@ export function Dashboard() {
                   />
                 ))}
               </div>
+            ) : (
+              <InvoiceTable 
+                invoices={filteredInvoices} 
+                onDelete={deleteInvoice}
+              />
             )}
           </div>
         </div>
