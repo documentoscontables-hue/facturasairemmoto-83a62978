@@ -1,16 +1,19 @@
 import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, FileText, Image, X, Loader2 } from 'lucide-react';
+import { Upload, FileText, Image, X, Loader2, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
 interface InvoiceUploaderProps {
-  onUpload: (files: File[]) => Promise<unknown>;
+  onUpload: (params: { files: File[]; clientName: string }) => Promise<unknown>;
   isUploading: boolean;
 }
 
 export function InvoiceUploader({ onUpload, isUploading }: InvoiceUploaderProps) {
   const [files, setFiles] = useState<File[]>([]);
+  const [clientName, setClientName] = useState('');
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setFiles(prev => [...prev, ...acceptedFiles]);
@@ -32,13 +35,34 @@ export function InvoiceUploader({ onUpload, isUploading }: InvoiceUploaderProps)
   };
 
   const handleUpload = async () => {
-    if (files.length === 0) return;
-    await onUpload(files);
+    if (files.length === 0 || !clientName.trim()) return;
+    await onUpload({ files, clientName: clientName.trim() });
     setFiles([]);
+    setClientName('');
   };
+
+  const canSubmit = files.length > 0 && clientName.trim().length > 0 && !isUploading;
 
   return (
     <div className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="client-name" className="flex items-center gap-2">
+          <User className="w-4 h-4" />
+          Nombre del Cliente / Empresa
+        </Label>
+        <Input
+          id="client-name"
+          placeholder="Ej: Mi Empresa S.L."
+          value={clientName}
+          onChange={(e) => setClientName(e.target.value)}
+          disabled={isUploading}
+          className="bg-background"
+        />
+        <p className="text-xs text-muted-foreground">
+          Este nombre determina si las facturas son emitidas o recibidas
+        </p>
+      </div>
+
       <div
         {...getRootProps()}
         className={cn(
@@ -92,9 +116,16 @@ export function InvoiceUploader({ onUpload, isUploading }: InvoiceUploaderProps)
               </div>
             ))}
           </div>
+          
+          {!clientName.trim() && (
+            <p className="text-xs text-warning text-center">
+              ⚠️ Introduce el nombre del cliente para poder subir
+            </p>
+          )}
+          
           <Button 
             onClick={handleUpload} 
-            disabled={isUploading} 
+            disabled={!canSubmit} 
             className="w-full gradient-primary"
           >
             {isUploading ? (

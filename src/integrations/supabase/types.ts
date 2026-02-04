@@ -18,6 +18,7 @@ export type Database = {
         Row: {
           classification_details: Json | null
           classification_status: string
+          client_name: string | null
           created_at: string
           file_name: string
           file_path: string
@@ -31,6 +32,7 @@ export type Database = {
         Insert: {
           classification_details?: Json | null
           classification_status?: string
+          client_name?: string | null
           created_at?: string
           file_name: string
           file_path: string
@@ -44,6 +46,7 @@ export type Database = {
         Update: {
           classification_details?: Json | null
           classification_status?: string
+          client_name?: string | null
           created_at?: string
           file_name?: string
           file_path?: string

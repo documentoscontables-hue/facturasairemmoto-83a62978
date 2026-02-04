@@ -6,6 +6,78 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const CLASSIFICATION_PROMPT = `Eres un experto en clasificación de facturas españolas. Analiza la factura y determina:
+
+**Tipo**: Determina si la factura es "Emitida" o "Recibida" basándote exclusivamente en el rol de la entidad {{CLIENT_NAME}}:
+- Emitida (Venta): Si {{CLIENT_NAME}} aparece como el Emisor/Vendedor (quien presta el servicio o vende el producto y recibe el dinero).
+- Recibida (Compra): Si {{CLIENT_NAME}} aparece como el Receptor/Cliente (quien adquiere el servicio/producto y paga el dinero).
+
+Instrucción Crítica: Antes de clasificar, identifica quién es el emisor y quién es el receptor en el documento. Si el emisor coincide con {{CLIENT_NAME}}, etiqueta como "Emitida". De lo contrario, etiqueta como "Recibida".
+
+**Operacion**: Identifica el tipo de operación contable según las siguientes opciones:
+
+1. **interiores_iva_deducible**: 
+   - NIF/CIF del emisor español (ESB..., B..., A...)
+   - IVA desglosado al 21%, 10% o 4% O exenta con normativa española
+   - NO menciona "Reverse charge" ni "Inversión del sujeto pasivo"
+
+2. **facturas_compensaciones_agrarias**: 
+   - Actividad del emisor: agricultor o ganadero
+   - IVA al 10% con mención a "Régimen Especial Agrario"
+
+3. **adquisiciones_intracomunitarias_bienes**: 
+   - NIF del EMISOR de otro país UE (IE..., LU..., NL..., FR..., DE..., IT...)
+   - NIF del RECEPTOR español (ESB...)
+   - Se trata de BIENES (productos físicos, mercancías)
+   - IVA 0% o "Intra-Community supply"
+
+4. **inversion_sujeto_pasivo**: 
+   - Texto explícito: "Inversión del sujeto pasivo" o "Reverse charge"
+   - O emisor de FUERA de la UE (Suiza CH, UK post-Brexit, USA, Noruega NO, Suecia SE, Islandia IS)
+
+5. **iva_no_deducible**: 
+   - Factura NO a nombre de la empresa española
+   - O gastos que NO corresponden a actividad empresarial
+
+6. **adquisiciones_intracomunitarias_servicios**: 
+   - SERVICIOS (NO bienes) de empresa UE
+   - NIF del prestador: código país UE + número
+   - Servicios: alojamiento, software, consultoría, marketing, plataformas
+
+7. **importaciones**: 
+   - Bienes de FUERA de la UE (China, USA, UK post-Brexit)
+   - Documentación: factura comercial + DUA
+
+8. **suplidos**: 
+   - Gastos adelantados por gestoría/asesoría
+   - Desglosa honorarios propios + suplidos
+
+9. **kit_digital**: 
+   - Mención a "Kit Digital", "Bono Kit Digital"
+   - Mejoras digitales: web, e-commerce, software
+
+10. **otro**: ÚLTIMA OPCIÓN si no encaja en ninguna categoría
+
+INSTRUCCIONES CRÍTICAS:
+PASO 1 - Identificar país del EMISOR por NIF
+PASO 2 - Si es UE, distinguir BIENES vs SERVICIOS
+PASO 3 - Verificar menciones "Reverse charge"
+PASO 4 - Suecia, Noruega, Islandia, Suiza, UK = fuera UE fiscal
+
+Responde SOLO con JSON válido sin markdown:
+{
+  "invoice_type": "emitida|recibida",
+  "operation_type": "categoria_exacta",
+  "confidence": 0.0-1.0,
+  "vendor": "nombre del emisor",
+  "amount": numero,
+  "date": "YYYY-MM-DD",
+  "invoice_number": "numero",
+  "emisor_nif": "NIF del emisor",
+  "receptor_nif": "NIF del receptor",
+  "reasoning": "breve explicación de la clasificación"
+}`;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -16,7 +88,11 @@ serve(async (req) => {
     
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY")!;
+    const geminiApiKey = Deno.env.get("GEMINI_API_KEY")!;
+
+    if (!geminiApiKey) {
+      throw new Error("GEMINI_API_KEY is not configured");
+    }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -29,6 +105,10 @@ serve(async (req) => {
 
     if (invoiceError || !invoice) {
       throw new Error("Invoice not found");
+    }
+
+    if (!invoice.client_name) {
+      throw new Error("El nombre del cliente es requerido para clasificar");
     }
 
     // Get signed URL for the file
@@ -49,63 +129,55 @@ serve(async (req) => {
       ? 'application/pdf' 
       : 'image/jpeg';
 
-    // Call AI to classify
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${lovableApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: `Eres un experto en clasificación de facturas españolas. Analiza la factura y determina:
-1. Tipo: "emitida" (factura que emite la empresa) o "recibida" (factura que recibe la empresa de un proveedor)
-2. Tipo de operación según estas categorías:
-   - adquisiciones_intracomunitarias: operaciones con países UE
-   - intereses_iva_deducible: facturas con intereses donde el IVA es deducible
-   - gastos_generales: gastos operativos generales
-   - servicios_profesionales: honorarios profesionales, consultoría
-   - suministros: electricidad, agua, gas, teléfono
-   - alquileres: arrendamientos de locales, equipos
-   - inversiones: compra de activos fijos, maquinaria
-   - otros: cuando no encaje en ninguna categoría
+    // Replace client name in prompt
+    const systemPrompt = CLASSIFICATION_PROMPT.replace(/\{\{CLIENT_NAME\}\}/g, invoice.client_name);
 
-Responde SOLO con JSON válido sin markdown: {"invoice_type": "emitida|recibida", "operation_type": "categoria", "confidence": 0.0-1.0, "vendor": "nombre", "amount": numero, "date": "YYYY-MM-DD", "invoice_number": "numero"}`
+    // Call Gemini API directly
+    const aiResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: systemPrompt },
+                { text: "Clasifica esta factura:" },
+                {
+                  inline_data: {
+                    mime_type: mimeType,
+                    data: base64Data,
+                  },
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            topP: 0.95,
+            maxOutputTokens: 1024,
           },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "Clasifica esta factura:"
-              },
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:${mimeType};base64,${base64Data}`
-                }
-              }
-            ]
-          }
-        ],
-      }),
-    });
+        }),
+      }
+    );
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
-      console.error("AI API error:", errorText);
+      console.error("Gemini API error:", errorText);
       throw new Error("AI classification failed");
     }
 
     const aiData = await aiResponse.json();
-    const content = aiData.choices?.[0]?.message?.content;
+    const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!content) {
       throw new Error("No response from AI");
     }
+
+    console.log("AI Response:", content);
 
     // Parse the response
     let classification;
@@ -116,6 +188,24 @@ Responde SOLO con JSON válido sin markdown: {"invoice_type": "emitida|recibida"
     } catch {
       console.error("Failed to parse AI response:", content);
       throw new Error("Invalid AI response format");
+    }
+
+    // Validate operation_type
+    const validOperationTypes = [
+      'interiores_iva_deducible',
+      'facturas_compensaciones_agrarias',
+      'adquisiciones_intracomunitarias_bienes',
+      'inversion_sujeto_pasivo',
+      'iva_no_deducible',
+      'adquisiciones_intracomunitarias_servicios',
+      'importaciones',
+      'suplidos',
+      'kit_digital',
+      'otro'
+    ];
+
+    if (!validOperationTypes.includes(classification.operation_type)) {
+      classification.operation_type = 'otro';
     }
 
     // Update invoice with classification
@@ -133,7 +223,10 @@ Responde SOLO con JSON válido sin markdown: {"invoice_type": "emitida|recibida"
             amount: classification.amount,
             date: classification.date,
             invoice_number: classification.invoice_number,
+            emisor_nif: classification.emisor_nif,
+            receptor_nif: classification.receptor_nif,
           },
+          reasoning: classification.reasoning,
         },
       })
       .eq("id", invoiceId);
