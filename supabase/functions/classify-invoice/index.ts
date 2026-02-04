@@ -127,7 +127,16 @@ serve(async (req) => {
 
     const fileResponse = await fetch(signedUrlData.signedUrl);
     const fileBuffer = await fileResponse.arrayBuffer();
-    const base64Data = btoa(String.fromCharCode(...new Uint8Array(fileBuffer)));
+    
+    // Convert to base64 without spread operator (avoids stack overflow for large files)
+    const uint8Array = new Uint8Array(fileBuffer);
+    let binaryString = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < uint8Array.length; i += chunkSize) {
+      const chunk = uint8Array.subarray(i, i + chunkSize);
+      binaryString += String.fromCharCode.apply(null, Array.from(chunk));
+    }
+    const base64Data = btoa(binaryString);
     
     const mimeType = invoice.file_type === 'pdf' 
       ? 'application/pdf' 
