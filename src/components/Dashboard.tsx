@@ -1,12 +1,14 @@
 import { useState, useMemo } from 'react';
 import { useInvoices } from '@/hooks/useInvoices';
 import { useAuth } from '@/hooks/useAuth';
+import { useAdmin } from '@/hooks/useAdmin';
 import { InvoiceUploader } from './InvoiceUploader';
 import { InvoiceCard } from './InvoiceCard';
 import { InvoiceFilters } from './InvoiceFilters';
+import { AdminPanel } from './AdminPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { FileText, Download, LogOut, Loader2, FolderOpen } from 'lucide-react';
+import { FileText, Download, LogOut, Loader2, FolderOpen, Shield } from 'lucide-react';
 import { InvoiceType, OperationType, ClassificationStatus } from '@/types/invoice';
 import JSZip from 'jszip';
 import { supabase } from '@/integrations/supabase/client';
@@ -20,6 +22,7 @@ interface Filters {
 
 export function Dashboard() {
   const { user, signOut } = useAuth();
+  const { isAdmin, isCheckingAdmin } = useAdmin();
   const { 
     invoices, 
     isLoading, 
@@ -38,6 +41,7 @@ export function Dashboard() {
   });
   const [isDownloading, setIsDownloading] = useState(false);
   const [classifyingId, setClassifyingId] = useState<string | null>(null);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
 
   const filteredInvoices = useMemo(() => {
     return invoices.filter(invoice => {
@@ -54,6 +58,11 @@ export function Dashboard() {
     recibidas: invoices.filter(i => i.invoice_type === 'recibida').length,
     pending: invoices.filter(i => i.classification_status === 'pending').length,
   }), [invoices]);
+
+  // Show admin panel if toggled (moved after all hooks)
+  if (showAdminPanel && isAdmin) {
+    return <AdminPanel onBack={() => setShowAdminPanel(false)} />;
+  }
 
   const handleClassify = async (id: string) => {
     setClassifyingId(id);
@@ -117,10 +126,18 @@ export function Dashboard() {
               <p className="text-xs text-muted-foreground">{user?.email}</p>
             </div>
           </div>
-          <Button variant="ghost" onClick={signOut}>
-            <LogOut className="w-4 h-4 mr-2" />
-            Salir
-          </Button>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <Button variant="outline" onClick={() => setShowAdminPanel(true)}>
+                <Shield className="w-4 h-4 mr-2" />
+                Admin
+              </Button>
+            )}
+            <Button variant="ghost" onClick={signOut}>
+              <LogOut className="w-4 h-4 mr-2" />
+              Salir
+            </Button>
+          </div>
         </div>
       </header>
 
