@@ -14,12 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      classification_feedback: {
+        Row: {
+          corrected_invoice_type: string | null
+          corrected_operation_type: string | null
+          created_at: string
+          id: string
+          invoice_id: string
+          is_correct: boolean
+          original_invoice_type: string | null
+          original_operation_type: string | null
+          user_id: string
+        }
+        Insert: {
+          corrected_invoice_type?: string | null
+          corrected_operation_type?: string | null
+          created_at?: string
+          id?: string
+          invoice_id: string
+          is_correct: boolean
+          original_invoice_type?: string | null
+          original_operation_type?: string | null
+          user_id: string
+        }
+        Update: {
+          corrected_invoice_type?: string | null
+          corrected_operation_type?: string | null
+          created_at?: string
+          id?: string
+          invoice_id?: string
+          is_correct?: boolean
+          original_invoice_type?: string | null
+          original_operation_type?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "classification_feedback_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invoices: {
         Row: {
           classification_details: Json | null
           classification_status: string
           client_name: string | null
           created_at: string
+          feedback_status: string | null
           file_name: string
           file_path: string
           file_type: string
@@ -34,6 +79,7 @@ export type Database = {
           classification_status?: string
           client_name?: string | null
           created_at?: string
+          feedback_status?: string | null
           file_name: string
           file_path: string
           file_type: string
@@ -48,6 +94,7 @@ export type Database = {
           classification_status?: string
           client_name?: string | null
           created_at?: string
+          feedback_status?: string | null
           file_name?: string
           file_path?: string
           file_type?: string

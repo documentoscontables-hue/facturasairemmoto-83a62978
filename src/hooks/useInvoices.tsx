@@ -35,6 +35,7 @@ export function useInvoices() {
         file_type: item.file_type as 'pdf' | 'image',
         client_name: (item as any).client_name as string | null,
         classification_details: item.classification_details as Invoice['classification_details'],
+        feedback_status: (item as any).feedback_status as string | null,
       })) as Invoice[];
     },
     enabled: !!user,
@@ -172,6 +173,69 @@ export function useInvoices() {
     },
   });
 
+  const feedbackMutation = useMutation({
+    mutationFn: async ({ 
+      invoiceId, 
+      isCorrect, 
+      originalType, 
+      originalOperation, 
+      correctedType, 
+      correctedOperation 
+    }: { 
+      invoiceId: string;
+      isCorrect: boolean;
+      originalType: InvoiceType | null;
+      originalOperation: OperationType | null;
+      correctedType?: InvoiceType;
+      correctedOperation?: OperationType;
+    }) => {
+      if (!user) throw new Error('Not authenticated');
+
+      // Insert feedback record
+      const { error: feedbackError } = await supabase
+        .from('classification_feedback')
+        .insert({
+          invoice_id: invoiceId,
+          user_id: user.id,
+          is_correct: isCorrect,
+          original_invoice_type: originalType,
+          original_operation_type: originalOperation,
+          corrected_invoice_type: correctedType || null,
+          corrected_operation_type: correctedOperation || null,
+        });
+
+      if (feedbackError) throw feedbackError;
+
+      // Update invoice feedback status
+      const feedbackStatus = isCorrect ? 'correct' : 'corrected';
+      const updateData: any = { feedback_status: feedbackStatus };
+      
+      // If corrected, also update the invoice classification
+      if (!isCorrect && correctedType && correctedOperation) {
+        updateData.invoice_type = correctedType;
+        updateData.operation_type = correctedOperation;
+      }
+
+      const { error: updateError } = await supabase
+        .from('invoices')
+        .update(updateData)
+        .eq('id', invoiceId);
+
+      if (updateError) throw updateError;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      if (variables.isCorrect) {
+        toast.success('¡Gracias por confirmar!');
+      } else {
+        toast.success('Corrección guardada - esto ayuda a mejorar el sistema');
+      }
+    },
+    onError: (error) => {
+      toast.error(`Error al guardar feedback: ${error.message}`);
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const invoice = query.data?.find(i => i.id === id);
@@ -203,6 +267,8 @@ export function useInvoices() {
     isClassifying: classifyMutation.isPending,
     isClassifyingAll: classifyAllMutation.isPending,
     classificationProgress,
+    submitFeedback: feedbackMutation.mutateAsync,
+    isSubmittingFeedback: feedbackMutation.isPending,
     deleteInvoice: deleteMutation.mutateAsync,
   };
 }

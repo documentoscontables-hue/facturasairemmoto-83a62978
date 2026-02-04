@@ -4,24 +4,29 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
-  FileText, Image, Sparkles, Trash2, Loader2, CheckCircle, AlertCircle, Clock,
+  FileText, Image, Trash2, CheckCircle, AlertCircle, Clock,
   ChevronDown, ChevronUp, Building, User, Calendar, Hash, Euro, Globe, FileCheck
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
+import { ClassificationFeedback } from './ClassificationFeedback';
 
 interface InvoiceCardProps {
   invoice: Invoice;
   onUpdate: (id: string, invoice_type?: InvoiceType, operation_type?: OperationType) => void;
   onDelete: (id: string) => void;
+  onFeedback: (invoiceId: string, isCorrect: boolean, correctedType?: InvoiceType, correctedOperation?: OperationType) => void;
+  isSubmittingFeedback?: boolean;
 }
 
 export function InvoiceCard({ 
   invoice, 
   onUpdate, 
   onDelete,
+  onFeedback,
+  isSubmittingFeedback = false,
 }: InvoiceCardProps) {
   const [expanded, setExpanded] = useState(false);
   
@@ -225,6 +230,19 @@ export function InvoiceCard({
                 </Select>
               </div>
             </div>
+
+            {/* Feedback section - only show for classified invoices without feedback */}
+            {invoice.classification_status === 'classified' && (
+              <ClassificationFeedback
+                currentType={invoice.invoice_type}
+                currentOperation={invoice.operation_type}
+                feedbackStatus={invoice.feedback_status}
+                onFeedback={(isCorrect, correctedType, correctedOperation) => 
+                  onFeedback(invoice.id, isCorrect, correctedType, correctedOperation)
+                }
+                isSubmitting={isSubmittingFeedback}
+              />
+            )}
 
             <div className="flex gap-2 pt-1">
               {invoice.classification_status === 'classified' && (
