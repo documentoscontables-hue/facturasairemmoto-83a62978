@@ -27,6 +27,28 @@ export const OPERATION_TYPE_LABELS: Record<OperationType, string> = {
   otro: 'Otro',
 };
 
+export interface ExtractedInvoiceData {
+  idioma?: string;
+  moneda?: string;
+  fecha_factura?: string;
+  subtotal?: number;
+  total?: number;
+  impuestos?: number;
+  porcentaje_iva?: number;
+  descripcion?: string;
+  nombre_emisor?: string;
+  id_emisor?: string;
+  nombre_receptor?: string;
+  id_receptor?: string;
+  direccion_emisor?: string;
+  direccion_receptor?: string;
+  codigo_postal_emisor?: string;
+  codigo_postal_receptor?: string;
+  factura_exenta?: boolean;
+  motivo_exencion?: string;
+  numero_factura?: string;
+}
+
 export interface Invoice {
   id: string;
   user_id: string;
@@ -40,14 +62,8 @@ export interface Invoice {
   classification_details: {
     confidence?: number;
     raw_response?: string;
-    extracted_data?: {
-      vendor?: string;
-      amount?: number;
-      date?: string;
-      invoice_number?: string;
-      emisor_nif?: string;
-      receptor_nif?: string;
-    };
+    extracted_data?: ExtractedInvoiceData;
+    reasoning?: string;
   } | null;
   created_at: string;
   updated_at: string;
