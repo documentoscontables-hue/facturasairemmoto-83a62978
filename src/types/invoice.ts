@@ -65,6 +65,7 @@ export interface Invoice {
     extracted_data?: ExtractedInvoiceData;
     reasoning?: string;
   } | null;
+  feedback_status: 'correct' | 'corrected' | null;
   created_at: string;
   updated_at: string;
 }

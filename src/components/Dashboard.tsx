@@ -34,6 +34,8 @@ export function Dashboard() {
     classifyAllInvoices,
     isClassifyingAll,
     classificationProgress,
+    submitFeedback,
+    isSubmittingFeedback,
     deleteInvoice
   } = useInvoices();
 
@@ -238,6 +240,17 @@ export function Dashboard() {
                     invoice={invoice}
                     onUpdate={(id, type, op) => updateInvoice({ id, invoice_type: type, operation_type: op })}
                     onDelete={deleteInvoice}
+                    onFeedback={(invoiceId, isCorrect, correctedType, correctedOperation) => 
+                      submitFeedback({
+                        invoiceId,
+                        isCorrect,
+                        originalType: invoice.invoice_type,
+                        originalOperation: invoice.operation_type,
+                        correctedType,
+                        correctedOperation,
+                      })
+                    }
+                    isSubmittingFeedback={isSubmittingFeedback}
                   />
                 ))}
               </div>
