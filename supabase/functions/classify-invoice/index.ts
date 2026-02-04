@@ -6,76 +6,83 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const CLASSIFICATION_PROMPT = `Eres un experto en clasificación de facturas españolas. Analiza la factura y determina:
+const CLASSIFICATION_PROMPT = `Eres un experto en clasificación y extracción de datos de facturas españolas. Analiza la factura y extrae TODA la información posible.
 
-**Tipo**: Determina si la factura es "Emitida" o "Recibida" basándote exclusivamente en el rol de la entidad {{CLIENT_NAME}}:
-- Emitida (Venta): Si {{CLIENT_NAME}} aparece como el Emisor/Vendedor (quien presta el servicio o vende el producto y recibe el dinero).
-- Recibida (Compra): Si {{CLIENT_NAME}} aparece como el Receptor/Cliente (quien adquiere el servicio/producto y paga el dinero).
+**INFORMACIÓN A EXTRAER:**
 
-Instrucción Crítica: Antes de clasificar, identifica quién es el emisor y quién es el receptor en el documento. Si el emisor coincide con {{CLIENT_NAME}}, etiqueta como "Emitida". De lo contrario, etiqueta como "Recibida".
+1. **Datos Generales:**
+   - idioma: Idioma del documento (español, inglés, francés, etc.)
+   - moneda: Código de moneda (EUR, USD, GBP, etc.)
+   - fecha_factura: Fecha de emisión en formato YYYY-MM-DD
+   - numero_factura: Número o código de la factura
 
-**Operacion**: Identifica el tipo de operación contable según las siguientes opciones:
+2. **Importes:**
+   - subtotal: Base imponible (sin IVA)
+   - impuestos: Importe total de impuestos/IVA
+   - porcentaje_iva: Porcentaje de IVA aplicado (21, 10, 4, 0)
+   - total: Importe total de la factura
 
-1. **interiores_iva_deducible**: 
-   - NIF/CIF del emisor español (ESB..., B..., A...)
-   - IVA desglosado al 21%, 10% o 4% O exenta con normativa española
-   - NO menciona "Reverse charge" ni "Inversión del sujeto pasivo"
+3. **Emisor (quien emite la factura):**
+   - nombre_emisor: Nombre completo o razón social
+   - id_emisor: NIF/CIF del emisor
+   - direccion_emisor: Dirección completa
+   - codigo_postal_emisor: Código postal
 
-2. **facturas_compensaciones_agrarias**: 
-   - Actividad del emisor: agricultor o ganadero
-   - IVA al 10% con mención a "Régimen Especial Agrario"
+4. **Receptor (quien recibe la factura):**
+   - nombre_receptor: Nombre completo o razón social
+   - id_receptor: NIF/CIF del receptor
+   - direccion_receptor: Dirección completa
+   - codigo_postal_receptor: Código postal
 
-3. **adquisiciones_intracomunitarias_bienes**: 
-   - NIF del EMISOR de otro país UE (IE..., LU..., NL..., FR..., DE..., IT...)
-   - NIF del RECEPTOR español (ESB...)
-   - Se trata de BIENES (productos físicos, mercancías)
-   - IVA 0% o "Intra-Community supply"
+5. **Otros:**
+   - descripcion: Resumen breve del concepto/servicios (máx 100 caracteres)
+   - factura_exenta: true si está exenta de IVA, false si no
+   - motivo_exencion: Si está exenta, indicar el motivo (ej: "Art. 20 Ley IVA")
 
-4. **inversion_sujeto_pasivo**: 
-   - Texto explícito: "Inversión del sujeto pasivo" o "Reverse charge"
-   - O emisor de FUERA de la UE (Suiza CH, UK post-Brexit, USA, Noruega NO, Suecia SE, Islandia IS)
+**CLASIFICACIÓN:**
 
-5. **iva_no_deducible**: 
-   - Factura NO a nombre de la empresa española
-   - O gastos que NO corresponden a actividad empresarial
+**Tipo**: Determina si la factura es "emitida" o "recibida" basándote en el rol de {{CLIENT_NAME}}:
+- emitida: Si {{CLIENT_NAME}} es el Emisor (vende/presta servicio)
+- recibida: Si {{CLIENT_NAME}} es el Receptor (compra/recibe servicio)
 
-6. **adquisiciones_intracomunitarias_servicios**: 
-   - SERVICIOS (NO bienes) de empresa UE
-   - NIF del prestador: código país UE + número
-   - Servicios: alojamiento, software, consultoría, marketing, plataformas
+**Operacion**: Clasifica según estas categorías:
 
-7. **importaciones**: 
-   - Bienes de FUERA de la UE (China, USA, UK post-Brexit)
-   - Documentación: factura comercial + DUA
-
-8. **suplidos**: 
-   - Gastos adelantados por gestoría/asesoría
-   - Desglosa honorarios propios + suplidos
-
-9. **kit_digital**: 
-   - Mención a "Kit Digital", "Bono Kit Digital"
-   - Mejoras digitales: web, e-commerce, software
-
-10. **otro**: ÚLTIMA OPCIÓN si no encaja en ninguna categoría
-
-INSTRUCCIONES CRÍTICAS:
-PASO 1 - Identificar país del EMISOR por NIF
-PASO 2 - Si es UE, distinguir BIENES vs SERVICIOS
-PASO 3 - Verificar menciones "Reverse charge"
-PASO 4 - Suecia, Noruega, Islandia, Suiza, UK = fuera UE fiscal
+1. **interiores_iva_deducible**: NIF emisor español, IVA desglosado o exenta por ley española
+2. **facturas_compensaciones_agrarias**: Régimen Especial Agrario, IVA 10%
+3. **adquisiciones_intracomunitarias_bienes**: Emisor UE (NL, LU, IE, FR, DE, IT...), BIENES físicos
+4. **inversion_sujeto_pasivo**: "Reverse charge" o emisor fuera UE (CH, UK, US, NO, SE, IS)
+5. **iva_no_deducible**: Factura no a nombre de la empresa o gastos personales
+6. **adquisiciones_intracomunitarias_servicios**: Emisor UE, SERVICIOS (software, hotel, consultoría)
+7. **importaciones**: Bienes de fuera UE con DUA
+8. **suplidos**: Gastos adelantados por gestoría/asesoría
+9. **kit_digital**: Subvención Kit Digital
+10. **otro**: Solo si no encaja en ninguna categoría
 
 Responde SOLO con JSON válido sin markdown:
 {
   "invoice_type": "emitida|recibida",
   "operation_type": "categoria_exacta",
   "confidence": 0.0-1.0,
-  "vendor": "nombre del emisor",
-  "amount": numero,
-  "date": "YYYY-MM-DD",
-  "invoice_number": "numero",
-  "emisor_nif": "NIF del emisor",
-  "receptor_nif": "NIF del receptor",
-  "reasoning": "breve explicación de la clasificación"
+  "idioma": "español",
+  "moneda": "EUR",
+  "fecha_factura": "YYYY-MM-DD",
+  "numero_factura": "XXX",
+  "subtotal": 100.00,
+  "impuestos": 21.00,
+  "porcentaje_iva": 21,
+  "total": 121.00,
+  "nombre_emisor": "Empresa Emisora S.L.",
+  "id_emisor": "B12345678",
+  "direccion_emisor": "Calle...",
+  "codigo_postal_emisor": "28001",
+  "nombre_receptor": "Empresa Receptora S.L.",
+  "id_receptor": "B87654321",
+  "direccion_receptor": "Avenida...",
+  "codigo_postal_receptor": "08001",
+  "descripcion": "Servicios de consultoría",
+  "factura_exenta": false,
+  "motivo_exencion": null,
+  "reasoning": "Breve explicación de la clasificación"
 }`;
 
 serve(async (req) => {
@@ -96,7 +103,6 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get invoice details
     const { data: invoice, error: invoiceError } = await supabase
       .from("invoices")
       .select("*")
@@ -111,7 +117,6 @@ serve(async (req) => {
       throw new Error("El nombre del cliente es requerido para clasificar");
     }
 
-    // Get signed URL for the file
     const { data: signedUrlData } = await supabase.storage
       .from("invoices")
       .createSignedUrl(invoice.file_path, 60);
@@ -120,7 +125,6 @@ serve(async (req) => {
       throw new Error("Could not get file URL");
     }
 
-    // Download the file to get base64
     const fileResponse = await fetch(signedUrlData.signedUrl);
     const fileBuffer = await fileResponse.arrayBuffer();
     const base64Data = btoa(String.fromCharCode(...new Uint8Array(fileBuffer)));
@@ -129,10 +133,8 @@ serve(async (req) => {
       ? 'application/pdf' 
       : 'image/jpeg';
 
-    // Replace client name in prompt
     const systemPrompt = CLASSIFICATION_PROMPT.replace(/\{\{CLIENT_NAME\}\}/g, invoice.client_name);
 
-    // Call Gemini API directly
     const aiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
       {
@@ -145,7 +147,7 @@ serve(async (req) => {
             {
               parts: [
                 { text: systemPrompt },
-                { text: "Clasifica esta factura:" },
+                { text: "Analiza y extrae toda la información de esta factura:" },
                 {
                   inline_data: {
                     mime_type: mimeType,
@@ -158,7 +160,7 @@ serve(async (req) => {
           generationConfig: {
             temperature: 0.1,
             topP: 0.95,
-            maxOutputTokens: 1024,
+            maxOutputTokens: 2048,
           },
         }),
       }
@@ -179,10 +181,8 @@ serve(async (req) => {
 
     console.log("AI Response:", content);
 
-    // Parse the response
     let classification;
     try {
-      // Remove potential markdown code blocks
       const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim();
       classification = JSON.parse(cleanContent);
     } catch {
@@ -190,7 +190,6 @@ serve(async (req) => {
       throw new Error("Invalid AI response format");
     }
 
-    // Validate operation_type
     const validOperationTypes = [
       'interiores_iva_deducible',
       'facturas_compensaciones_agrarias',
@@ -208,7 +207,6 @@ serve(async (req) => {
       classification.operation_type = 'otro';
     }
 
-    // Update invoice with classification
     const { error: updateError } = await supabase
       .from("invoices")
       .update({
@@ -218,15 +216,28 @@ serve(async (req) => {
         classification_details: {
           confidence: classification.confidence,
           raw_response: content,
-          extracted_data: {
-            vendor: classification.vendor,
-            amount: classification.amount,
-            date: classification.date,
-            invoice_number: classification.invoice_number,
-            emisor_nif: classification.emisor_nif,
-            receptor_nif: classification.receptor_nif,
-          },
           reasoning: classification.reasoning,
+          extracted_data: {
+            idioma: classification.idioma,
+            moneda: classification.moneda,
+            fecha_factura: classification.fecha_factura,
+            numero_factura: classification.numero_factura,
+            subtotal: classification.subtotal,
+            impuestos: classification.impuestos,
+            porcentaje_iva: classification.porcentaje_iva,
+            total: classification.total,
+            nombre_emisor: classification.nombre_emisor,
+            id_emisor: classification.id_emisor,
+            direccion_emisor: classification.direccion_emisor,
+            codigo_postal_emisor: classification.codigo_postal_emisor,
+            nombre_receptor: classification.nombre_receptor,
+            id_receptor: classification.id_receptor,
+            direccion_receptor: classification.direccion_receptor,
+            codigo_postal_receptor: classification.codigo_postal_receptor,
+            descripcion: classification.descripcion,
+            factura_exenta: classification.factura_exenta,
+            motivo_exencion: classification.motivo_exencion,
+          },
         },
       })
       .eq("id", invoiceId);

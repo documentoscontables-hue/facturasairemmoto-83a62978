@@ -3,10 +3,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { FileText, Image, Sparkles, Trash2, Loader2, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { 
+  FileText, Image, Sparkles, Trash2, Loader2, CheckCircle, AlertCircle, Clock,
+  ChevronDown, ChevronUp, Building, User, Calendar, Hash, Euro, Globe, FileCheck
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { useState } from 'react';
 
 interface InvoiceCardProps {
   invoice: Invoice;
@@ -23,6 +27,8 @@ export function InvoiceCard({
   onDelete,
   isClassifying 
 }: InvoiceCardProps) {
+  const [expanded, setExpanded] = useState(false);
+  
   const statusConfig = {
     pending: { icon: Clock, label: 'Pendiente', className: 'bg-warning/10 text-warning' },
     classified: { icon: CheckCircle, label: 'Clasificada', className: 'bg-success/10 text-success' },
@@ -31,6 +37,12 @@ export function InvoiceCard({
 
   const status = statusConfig[invoice.classification_status];
   const StatusIcon = status.icon;
+  const data = invoice.classification_details?.extracted_data;
+
+  const formatCurrency = (amount?: number, currency = 'EUR') => {
+    if (amount === undefined || amount === null) return '-';
+    return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format(amount);
+  };
 
   return (
     <Card className="glass-card overflow-hidden group hover:shadow-xl transition-shadow">
@@ -63,6 +75,115 @@ export function InvoiceCard({
                 {status.label}
               </Badge>
             </div>
+
+            {/* Extracted Data Summary - Only show if classified */}
+            {invoice.classification_status === 'classified' && data && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-3 bg-muted/50 rounded-lg text-sm">
+                <div className="flex items-center gap-1.5">
+                  <Hash className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span className="truncate">{data.numero_factura || '-'}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span>{data.fecha_factura || '-'}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Euro className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span className="font-medium">{formatCurrency(data.total, data.moneda)}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span>{data.idioma || '-'} / {data.moneda || '-'}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Expanded Details */}
+            {expanded && invoice.classification_status === 'classified' && data && (
+              <div className="space-y-3 p-3 bg-muted/30 rounded-lg border border-border/50">
+                {/* Emisor */}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase">
+                    <Building className="w-3.5 h-3.5" />
+                    Emisor
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="font-medium">{data.nombre_emisor || '-'}</span>
+                      <span className="text-muted-foreground ml-2">({data.id_emisor || '-'})</span>
+                    </div>
+                    <div className="text-muted-foreground">
+                      {data.direccion_emisor || '-'} {data.codigo_postal_emisor && `(${data.codigo_postal_emisor})`}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Receptor */}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase">
+                    <User className="w-3.5 h-3.5" />
+                    Receptor
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="font-medium">{data.nombre_receptor || '-'}</span>
+                      <span className="text-muted-foreground ml-2">({data.id_receptor || '-'})</span>
+                    </div>
+                    <div className="text-muted-foreground">
+                      {data.direccion_receptor || '-'} {data.codigo_postal_receptor && `(${data.codigo_postal_receptor})`}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Importes */}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase">
+                    <Euro className="w-3.5 h-3.5" />
+                    Importes
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Subtotal: </span>
+                      <span className="font-medium">{formatCurrency(data.subtotal, data.moneda)}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">IVA ({data.porcentaje_iva || 0}%): </span>
+                      <span className="font-medium">{formatCurrency(data.impuestos, data.moneda)}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Total: </span>
+                      <span className="font-bold text-primary">{formatCurrency(data.total, data.moneda)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Descripción */}
+                {data.descripcion && (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase">
+                      <FileCheck className="w-3.5 h-3.5" />
+                      Descripción
+                    </div>
+                    <p className="text-sm">{data.descripcion}</p>
+                  </div>
+                )}
+
+                {/* Exención */}
+                {data.factura_exenta && (
+                  <div className="flex items-center gap-2 p-2 bg-warning/10 rounded text-sm">
+                    <AlertCircle className="w-4 h-4 text-warning" />
+                    <span>Factura exenta: {data.motivo_exencion || 'Motivo no especificado'}</span>
+                  </div>
+                )}
+
+                {/* Reasoning */}
+                {invoice.classification_details?.reasoning && (
+                  <div className="text-xs text-muted-foreground italic border-t pt-2">
+                    IA: {invoice.classification_details.reasoning}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
@@ -126,6 +247,28 @@ export function InvoiceCard({
                   Clasificar con IA
                 </Button>
               )}
+              
+              {invoice.classification_status === 'classified' && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setExpanded(!expanded)}
+                  className="flex-1"
+                >
+                  {expanded ? (
+                    <>
+                      <ChevronUp className="w-4 h-4 mr-2" />
+                      Menos detalles
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="w-4 h-4 mr-2" />
+                      Ver detalles
+                    </>
+                  )}
+                </Button>
+              )}
+              
               <Button
                 size="sm"
                 variant="ghost"
