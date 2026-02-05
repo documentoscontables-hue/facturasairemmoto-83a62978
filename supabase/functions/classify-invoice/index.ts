@@ -120,6 +120,58 @@ Responde SOLO con JSON válido sin markdown:
   "reasoning": "Breve explicación de la clasificación incluyendo cómo se usó el logo"
 }`;
 
+// Function to find the best matching account based on invoice description
+async function findMatchingAccount(
+  supabase: any,
+  userId: string,
+  invoiceDescription: string
+): Promise<string | null> {
+  // Get user's accounts
+  const { data: accounts, error } = await supabase
+    .from("accounts")
+    .select("account_code, account_description")
+    .eq("user_id", userId);
+
+  if (error || !accounts || accounts.length === 0) {
+    console.log("No accounts found for user or error:", error);
+    return null;
+  }
+
+  console.log(`Found ${accounts.length} accounts for matching`);
+  
+  // Simple keyword matching - find best match based on description similarity
+  const descLower = (invoiceDescription || "").toLowerCase();
+  
+  let bestMatch: { code: string; score: number } | null = null;
+  
+  for (const account of accounts) {
+    const accountDescLower = account.account_description.toLowerCase();
+    const accountWords = accountDescLower.split(/\s+/);
+    
+    // Count matching words
+    let matchScore = 0;
+    for (const word of accountWords) {
+      if (word.length > 3 && descLower.includes(word)) {
+        matchScore += 1;
+      }
+    }
+    
+    // Also check if account description contains invoice description keywords
+    const invoiceWords = descLower.split(/\s+/);
+    for (const word of invoiceWords) {
+      if (word.length > 3 && accountDescLower.includes(word)) {
+        matchScore += 1;
+      }
+    }
+    
+    if (matchScore > 0 && (!bestMatch || matchScore > bestMatch.score)) {
+      bestMatch = { code: account.account_code, score: matchScore };
+    }
+  }
+  
+  return bestMatch?.code || null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -151,6 +203,16 @@ serve(async (req) => {
     if (!invoice.client_name) {
       throw new Error("El nombre del cliente es requerido para clasificar");
     }
+
+    // Check if user has any accounts for reconciliation
+    const { data: userAccounts } = await supabase
+      .from("accounts")
+      .select("id")
+      .eq("user_id", invoice.user_id)
+      .limit(1);
+    
+    const hasAccountBook = userAccounts && userAccounts.length > 0;
+    console.log("User has account book:", hasAccountBook);
 
     const { data: signedUrlData } = await supabase.storage
       .from("invoices")
@@ -244,6 +306,7 @@ serve(async (req) => {
           invoice_type: 'proforma',
           operation_type: 'no_aplica',
           classification_status: "classified",
+          assigned_account: null,
           classification_details: {
             confidence: classification.confidence || 0.95,
             raw_response: content,
@@ -281,12 +344,28 @@ serve(async (req) => {
       classification.operation_type = 'otro';
     }
 
+    // Perform account reconciliation if user has account book
+    let assignedAccount: string | null = null;
+    if (hasAccountBook) {
+      const description = classification.descripcion || '';
+      assignedAccount = await findMatchingAccount(supabase, invoice.user_id, description);
+      
+      // If no match found, assign default account 555
+      if (!assignedAccount) {
+        assignedAccount = '555';
+        console.log("No matching account found, assigning default: 555");
+      } else {
+        console.log("Matched account:", assignedAccount);
+      }
+    }
+
     const { error: updateError } = await supabase
       .from("invoices")
       .update({
         invoice_type: classification.invoice_type,
         operation_type: classification.operation_type,
         classification_status: "classified",
+        assigned_account: assignedAccount,
         classification_details: {
           confidence: classification.confidence,
           raw_response: content,
@@ -322,7 +401,11 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, classification }),
+      JSON.stringify({ 
+        success: true, 
+        classification,
+        assigned_account: assignedAccount 
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {

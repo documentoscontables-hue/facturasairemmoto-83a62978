@@ -47,6 +47,7 @@ export function InvoiceTable({ invoices, onDelete }: InvoiceTableProps) {
               <TableHead className="text-right">Total</TableHead>
               <TableHead>Clasificación</TableHead>
               <TableHead>Operación</TableHead>
+              <TableHead>Cuenta</TableHead>
               <TableHead>Estado</TableHead>
               <TableHead className="w-[50px]"></TableHead>
             </TableRow>
@@ -114,6 +115,15 @@ export function InvoiceTable({ invoices, onDelete }: InvoiceTableProps) {
                     <span className="text-sm truncate block" title={invoice.operation_type ? OPERATION_TYPE_LABELS[invoice.operation_type] : ''}>
                       {invoice.operation_type ? OPERATION_TYPE_LABELS[invoice.operation_type] : '-'}
                     </span>
+                  </TableCell>
+                  <TableCell>
+                    {invoice.assigned_account ? (
+                      <Badge variant="secondary" className="font-mono">
+                        {invoice.assigned_account}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className={cn("shrink-0", status.className)}>

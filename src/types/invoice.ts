@@ -74,6 +74,7 @@ export interface Invoice {
     reasoning?: string;
   } | null;
   feedback_status: 'correct' | 'corrected' | null;
+  assigned_account: string | null;
   created_at: string;
   updated_at: string;
 }

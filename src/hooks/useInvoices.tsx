@@ -36,6 +36,7 @@ export function useInvoices() {
         client_name: (item as any).client_name as string | null,
         classification_details: item.classification_details as Invoice['classification_details'],
         feedback_status: (item as any).feedback_status as string | null,
+        assigned_account: (item as any).assigned_account as string | null,
       })) as Invoice[];
     },
     enabled: !!user,

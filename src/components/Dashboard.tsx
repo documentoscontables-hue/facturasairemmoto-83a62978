@@ -8,6 +8,7 @@ import { InvoiceTable } from './InvoiceTable';
 import { InvoiceFilters } from './InvoiceFilters';
 import { ClassificationProgress } from './ClassificationProgress';
 import { AdminPanel } from './AdminPanel';
+import { AccountBookUploader } from './AccountBookUploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -172,7 +173,7 @@ export function Dashboard() {
 
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Upload Section */}
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-1 space-y-6">
             <Card className="glass-card sticky top-24">
               <CardHeader>
                 <CardTitle className="text-lg">Subir facturas</CardTitle>
@@ -184,6 +185,9 @@ export function Dashboard() {
                 <InvoiceUploader onUpload={uploadInvoices} isUploading={isUploading} />
               </CardContent>
             </Card>
+            
+            {/* Account Book Uploader */}
+            <AccountBookUploader />
           </div>
 
           {/* Invoice List */}

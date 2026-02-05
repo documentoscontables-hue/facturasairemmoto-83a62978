@@ -1,1 +1,7 @@
 project_id = "nfnodtneknrumxpfftbr"
+
+[functions.classify-invoice]
+verify_jwt = false
+
+[functions.parse-account-book]
+verify_jwt = false
