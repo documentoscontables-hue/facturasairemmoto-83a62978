@@ -102,9 +102,11 @@ export function InvoiceTable({ invoices, onDelete }: InvoiceTableProps) {
                     {invoice.invoice_type ? (
                       <Badge variant="outline" className={cn(
                         "capitalize",
-                        invoice.invoice_type === 'emitida' ? 'border-emitida text-emitida' : 'border-recibida text-recibida'
+                        invoice.invoice_type === 'emitida' ? 'border-emitida text-emitida' : 
+                        invoice.invoice_type === 'recibida' ? 'border-recibida text-recibida' :
+                        'border-muted-foreground text-muted-foreground'
                       )}>
-                        {invoice.invoice_type}
+                        {INVOICE_TYPE_LABELS[invoice.invoice_type]}
                       </Badge>
                     ) : '-'}
                   </TableCell>

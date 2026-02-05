@@ -197,18 +197,17 @@ export function InvoiceCard({
                     <SelectValue placeholder="Seleccionar..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="emitida">
-                      <span className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-emitida" />
-                        Emitida
-                      </span>
-                    </SelectItem>
-                    <SelectItem value="recibida">
-                      <span className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-recibida" />
-                        Recibida
-                      </span>
-                    </SelectItem>
+                    {Object.entries(INVOICE_TYPE_LABELS).map(([key, label]) => (
+                      <SelectItem key={key} value={key}>
+                        <span className="flex items-center gap-2">
+                          <span className={cn(
+                            "w-2 h-2 rounded-full",
+                            key === 'emitida' ? 'bg-emitida' : key === 'recibida' ? 'bg-recibida' : 'bg-muted'
+                          )} />
+                          {label}
+                        </span>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
