@@ -5,6 +5,14 @@ import { Invoice, InvoiceType, OperationType, ClassificationStatus } from '@/typ
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 
+// Sanitize file names for Supabase Storage (remove accents and special chars)
+function sanitizeFileName(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove accents
+    .replace(/[^a-zA-Z0-9._-]/g, '_'); // Replace special chars with underscore
+}
+
 export interface ClassificationProgress {
   current: number;
   total: number;
