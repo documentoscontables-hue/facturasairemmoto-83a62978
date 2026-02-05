@@ -1,12 +1,15 @@
+import { useState } from 'react';
 import { useAdmin } from '@/hooks/useAdmin';
+import { useAdminInvoices } from '@/hooks/useAdminInvoices';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Users, FileText, CheckCircle, Clock, ArrowLeft, RefreshCw } from 'lucide-react';
+import { Loader2, Users, FileText, CheckCircle, Clock, ArrowLeft, RefreshCw, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { AdminUserInvoices } from './AdminUserInvoices';
 
 interface AdminPanelProps {
   onBack: () => void;
@@ -15,6 +18,10 @@ interface AdminPanelProps {
 export function AdminPanel({ onBack }: AdminPanelProps) {
   const { user } = useAuth();
   const { userStats, isLoadingStats, refetchStats } = useAdmin();
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [selectedUserEmail, setSelectedUserEmail] = useState<string>('');
+
+  const { userInvoices, isLoading: isLoadingInvoices } = useAdminInvoices(selectedUserId || undefined);
 
   const totals = {
     users: userStats.length,
@@ -22,6 +29,51 @@ export function AdminPanel({ onBack }: AdminPanelProps) {
     classifiedInvoices: userStats.reduce((sum, u) => sum + Number(u.classified_invoices), 0),
     pendingInvoices: userStats.reduce((sum, u) => sum + Number(u.pending_invoices), 0),
   };
+
+  const handleViewUserInvoices = (userId: string, email: string) => {
+    setSelectedUserId(userId);
+    setSelectedUserEmail(email);
+  };
+
+  const handleBackToList = () => {
+    setSelectedUserId(null);
+    setSelectedUserEmail('');
+  };
+
+  // If viewing a specific user's invoices
+  if (selectedUserId) {
+    const invoices = userInvoices[0]?.invoices || [];
+    return (
+      <div className="min-h-screen bg-background">
+        <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
+          <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="icon" onClick={onBack}>
+                <ArrowLeft className="w-5 h-5" />
+              </Button>
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Users className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <h1 className="font-bold text-lg">Panel de Administración</h1>
+                <p className="text-xs text-muted-foreground">{user?.email}</p>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="container mx-auto px-4 py-8">
+          <AdminUserInvoices
+            userId={selectedUserId}
+            userEmail={selectedUserEmail}
+            invoices={invoices}
+            isLoading={isLoadingInvoices}
+            onBack={handleBackToList}
+          />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -93,7 +145,7 @@ export function AdminPanel({ onBack }: AdminPanelProps) {
           <CardHeader>
             <CardTitle className="text-lg">Usuarios Registrados</CardTitle>
             <CardDescription>
-              Lista de todos los usuarios y sus estadísticas de facturas
+              Lista de todos los usuarios y sus estadísticas de facturas. Haz clic en "Ver historial" para ver los datos extraídos de cada factura.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -114,6 +166,7 @@ export function AdminPanel({ onBack }: AdminPanelProps) {
                     <TableHead className="text-center">Total</TableHead>
                     <TableHead className="text-center">Clasificadas</TableHead>
                     <TableHead className="text-center">Pendientes</TableHead>
+                    <TableHead className="text-center">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -135,6 +188,17 @@ export function AdminPanel({ onBack }: AdminPanelProps) {
                         <Badge className="bg-warning/10 text-warning hover:bg-warning/20">
                           {userStat.pending_invoices}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleViewUserInvoices(userStat.user_id, userStat.email)}
+                          disabled={userStat.total_invoices === 0}
+                        >
+                          <Eye className="w-4 h-4 mr-1" />
+                          Ver historial
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
