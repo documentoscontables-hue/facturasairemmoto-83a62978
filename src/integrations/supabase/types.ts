@@ -156,6 +156,24 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_user_invoices_admin: {
+        Args: { target_user_id: string }
+        Returns: {
+          classification_details: Json
+          classification_status: string
+          client_name: string
+          created_at: string
+          feedback_status: string
+          file_name: string
+          file_path: string
+          file_type: string
+          id: string
+          invoice_type: string
+          operation_type: string
+          updated_at: string
+          user_id: string
+        }[]
+      }
       get_user_stats: {
         Args: never
         Returns: {
