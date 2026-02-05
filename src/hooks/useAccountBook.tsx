@@ -4,6 +4,14 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 
+// Sanitize file names for Supabase Storage (remove accents and special chars)
+function sanitizeFileName(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove accents
+    .replace(/[^a-zA-Z0-9._-]/g, '_'); // Replace special chars with underscore
+}
+
 export interface AccountBook {
   id: string;
   user_id: string;
@@ -78,7 +86,8 @@ export function useAccountBook() {
 
       setIsParsingBook(true);
 
-      const filePath = `${user.id}/${Date.now()}-${file.name}`;
+      const sanitizedName = sanitizeFileName(file.name);
+      const filePath = `${user.id}/${Date.now()}-${sanitizedName}`;
       
       // Upload file to storage
       const { error: uploadError } = await supabase.storage
