@@ -63,6 +63,7 @@ export function Dashboard() {
     total: invoices.length,
     emitidas: invoices.filter(i => i.invoice_type === 'emitida').length,
     recibidas: invoices.filter(i => i.invoice_type === 'recibida').length,
+    proformas: invoices.filter(i => i.invoice_type === 'proforma').length,
     pending: invoices.filter(i => i.classification_status === 'pending').length,
   }), [invoices]);
 
