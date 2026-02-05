@@ -117,6 +117,15 @@ export function InvoiceTable({ invoices, onDelete }: InvoiceTableProps) {
                     </span>
                   </TableCell>
                   <TableCell>
+                    {invoice.assigned_account ? (
+                      <Badge variant="secondary" className="font-mono">
+                        {invoice.assigned_account}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <Badge variant="outline" className={cn("shrink-0", status.className)}>
                       <StatusIcon className="w-3 h-3 mr-1" />
                       {status.label}

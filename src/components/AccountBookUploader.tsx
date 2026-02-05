@@ -82,7 +82,7 @@ export function AccountBookUploader() {
             <CardTitle className="text-lg">Libro de Cuentas</CardTitle>
           </div>
           {hasAccountBook && (
-            <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30">
+            <Badge variant="outline" className="bg-success/10 text-success border-success/30">
               <CheckCircle2 className="w-3 h-3 mr-1" />
               Activo
             </Badge>
