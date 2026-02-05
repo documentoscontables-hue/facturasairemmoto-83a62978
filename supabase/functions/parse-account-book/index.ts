@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,7 +9,7 @@ const corsHeaders = {
 
 const PARSE_BOOK_PROMPT = `Eres un experto en contabilidad española. Tu tarea es extraer las cuentas contables de este libro/plan de cuentas.
 
-El documento puede ser un PDF o Excel que contiene un listado de cuentas contables con su código y descripción.
+El documento puede contener un listado de cuentas contables con su código y descripción.
 
 **ESTRUCTURA ESPERADA:**
 - Código de cuenta: Número que identifica la cuenta (ej: 100, 400, 6000, 62900)
@@ -26,6 +27,7 @@ El documento puede ser un PDF o Excel que contiene un listado de cuentas contabl
 1. Busca todas las filas/líneas que contengan un código numérico y una descripción
 2. Ignora encabezados, totales, y líneas vacías
 3. Extrae SOLO cuentas válidas con código y descripción
+4. El código puede estar en cualquier columna, busca patrones numéricos que parezcan códigos contables
 
 Responde SOLO con JSON válido sin markdown:
 {
@@ -35,6 +37,25 @@ Responde SOLO con JSON válido sin markdown:
   ],
   "total_found": 2
 }`;
+
+function parseExcelToText(buffer: ArrayBuffer): string {
+  try {
+    const workbook = XLSX.read(buffer, { type: "array" });
+    let fullText = "";
+    
+    for (const sheetName of workbook.SheetNames) {
+      const worksheet = workbook.Sheets[sheetName];
+      // Convert to CSV for easy text extraction
+      const csv = XLSX.utils.sheet_to_csv(worksheet, { blankrows: false });
+      fullText += `=== Hoja: ${sheetName} ===\n${csv}\n\n`;
+    }
+    
+    return fullText;
+  } catch (error) {
+    console.error("Error parsing Excel:", error);
+    throw new Error("Failed to parse Excel file");
+  }
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -79,26 +100,72 @@ serve(async (req) => {
     const fileResponse = await fetch(signedUrlData.signedUrl);
     const fileBuffer = await fileResponse.arrayBuffer();
     
-    // Convert to base64
-    const uint8Array = new Uint8Array(fileBuffer);
-    let binaryString = '';
-    const chunkSize = 8192;
-    for (let i = 0; i < uint8Array.length; i += chunkSize) {
-      const chunk = uint8Array.subarray(i, i + chunkSize);
-      binaryString += String.fromCharCode.apply(null, Array.from(chunk));
-    }
-    const base64Data = btoa(binaryString);
-    
-    // Determine MIME type
+    // Determine file type and prepare content for AI
     const fileExt = book.file_name.split('.').pop()?.toLowerCase();
-    let mimeType = 'application/pdf';
-    if (fileExt === 'xlsx') {
-      mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-    } else if (fileExt === 'xls') {
-      mimeType = 'application/vnd.ms-excel';
+    const isExcel = ['xlsx', 'xls'].includes(fileExt || '');
+    const isPdf = fileExt === 'pdf';
+    
+    let aiRequestBody;
+    
+    if (isExcel) {
+      // Parse Excel to text first
+      console.log("Parsing Excel file to text...");
+      const excelText = parseExcelToText(fileBuffer);
+      console.log("Excel parsed, text length:", excelText.length);
+      
+      // Send as text to Gemini
+      aiRequestBody = {
+        contents: [
+          {
+            parts: [
+              { text: PARSE_BOOK_PROMPT },
+              { text: `Contenido del archivo Excel:\n\n${excelText}` },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          topP: 0.95,
+          maxOutputTokens: 8192,
+        },
+      };
+    } else if (isPdf) {
+      // Convert PDF to base64 and send directly
+      const uint8Array = new Uint8Array(fileBuffer);
+      let binaryString = '';
+      const chunkSize = 8192;
+      for (let i = 0; i < uint8Array.length; i += chunkSize) {
+        const chunk = uint8Array.subarray(i, i + chunkSize);
+        binaryString += String.fromCharCode.apply(null, Array.from(chunk));
+      }
+      const base64Data = btoa(binaryString);
+      
+      aiRequestBody = {
+        contents: [
+          {
+            parts: [
+              { text: PARSE_BOOK_PROMPT },
+              { text: "Extrae todas las cuentas contables de este documento:" },
+              {
+                inline_data: {
+                  mime_type: "application/pdf",
+                  data: base64Data,
+                },
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          topP: 0.95,
+          maxOutputTokens: 8192,
+        },
+      };
+    } else {
+      throw new Error(`Unsupported file type: ${fileExt}`);
     }
 
-    console.log("Sending request to Gemini for book parsing, file type:", mimeType);
+    console.log("Sending request to Gemini for book parsing...");
 
     const aiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
@@ -107,27 +174,7 @@ serve(async (req) => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: PARSE_BOOK_PROMPT },
-                { text: "Extrae todas las cuentas contables de este documento:" },
-                {
-                  inline_data: {
-                    mime_type: mimeType,
-                    data: base64Data,
-                  },
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            topP: 0.95,
-            maxOutputTokens: 8192,
-          },
-        }),
+        body: JSON.stringify(aiRequestBody),
       }
     );
 
