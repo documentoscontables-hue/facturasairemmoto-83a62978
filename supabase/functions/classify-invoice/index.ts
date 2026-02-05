@@ -8,6 +8,25 @@ const corsHeaders = {
 
 const CLASSIFICATION_PROMPT = `Eres un experto en clasificación y extracción de datos de facturas españolas. Analiza la factura y extrae TODA la información posible.
 
+**PASO 1 - DETECCIÓN DE PROFORMA:**
+PRIMERO, verifica si el documento es una PROFORMA. Busca las siguientes palabras en CUALQUIER IDIOMA:
+- Español: "Proforma", "Factura Proforma", "Pro-forma"
+- Inglés: "Proforma", "Pro forma Invoice", "Proforma Invoice"
+- Francés: "Facture Proforma", "Pro forma"
+- Alemán: "Proforma-Rechnung", "Proformarechnung"
+- Italiano: "Fattura Proforma"
+- Portugués: "Fatura Proforma"
+
+Si detectas que es una PROFORMA, responde SOLO con:
+{
+  "invoice_type": "proforma",
+  "operation_type": "no_aplica",
+  "confidence": 0.95,
+  "reasoning": "Documento identificado como proforma"
+}
+
+**SI NO ES PROFORMA, continúa con el análisis completo:**
+
 **INFORMACIÓN A EXTRAER:**
 
 1. **Datos Generales:**
@@ -39,11 +58,26 @@ const CLASSIFICATION_PROMPT = `Eres un experto en clasificación y extracción d
    - factura_exenta: true si está exenta de IVA, false si no
    - motivo_exencion: Si está exenta, indicar el motivo (ej: "Art. 20 Ley IVA")
 
-**CLASIFICACIÓN:**
+**CLASIFICACIÓN DEL TIPO (EMITIDA/RECIBIDA):**
 
-**Tipo**: Determina si la factura es "emitida" o "recibida" basándote en el rol de {{CLIENT_NAME}}:
-- emitida: Si {{CLIENT_NAME}} es el Emisor (vende/presta servicio)
-- recibida: Si {{CLIENT_NAME}} es el Receptor (compra/recibe servicio)
+IMPORTANTE: Para determinar si la factura es "emitida" o "recibida", utiliza MÚLTIPLES fuentes de información:
+
+1. **Análisis del LOGO**: 
+   - Busca el logotipo de la empresa en la factura
+   - El logo generalmente pertenece al EMISOR (quien emite la factura)
+   - Compara el nombre/marca del logo con {{CLIENT_NAME}}
+   - Si el logo coincide con {{CLIENT_NAME}}, es EMITIDA
+
+2. **Posición del nombre**:
+   - El EMISOR suele aparecer en la parte superior/izquierda, con membrete
+   - El RECEPTOR aparece en el área de "Cliente:", "Facturar a:", "Bill to:"
+
+3. **NIF/CIF**:
+   - Compara el NIF del emisor y receptor con los datos conocidos de {{CLIENT_NAME}}
+
+**Tipo**: 
+- emitida: Si {{CLIENT_NAME}} es el Emisor (vende/presta servicio) - su logo/nombre aparece como quien factura
+- recibida: Si {{CLIENT_NAME}} es el Receptor (compra/recibe servicio) - su nombre aparece como cliente
 
 **Operacion**: Clasifica según estas categorías:
 
@@ -82,7 +116,8 @@ Responde SOLO con JSON válido sin markdown:
   "descripcion": "Servicios de consultoría",
   "factura_exenta": false,
   "motivo_exencion": null,
-  "reasoning": "Breve explicación de la clasificación"
+  "logo_detected": "Nombre de la empresa del logo detectado",
+  "reasoning": "Breve explicación de la clasificación incluyendo cómo se usó el logo"
 }`;
 
 serve(async (req) => {
@@ -144,6 +179,8 @@ serve(async (req) => {
 
     const systemPrompt = CLASSIFICATION_PROMPT.replace(/\{\{CLIENT_NAME\}\}/g, invoice.client_name);
 
+    console.log("Sending request to Gemini for invoice:", invoiceId);
+
     const aiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
       {
@@ -156,7 +193,7 @@ serve(async (req) => {
             {
               parts: [
                 { text: systemPrompt },
-                { text: "Analiza y extrae toda la información de esta factura:" },
+                { text: "Analiza esta factura. PRIMERO verifica si es una PROFORMA. Si no lo es, extrae toda la información. Presta especial atención al LOGO para identificar al emisor:" },
                 {
                   inline_data: {
                     mime_type: mimeType,
@@ -199,6 +236,33 @@ serve(async (req) => {
       throw new Error("Invalid AI response format");
     }
 
+    // Handle proforma invoices - minimal data needed
+    if (classification.invoice_type === 'proforma') {
+      const { error: updateError } = await supabase
+        .from("invoices")
+        .update({
+          invoice_type: 'proforma',
+          operation_type: 'no_aplica',
+          classification_status: "classified",
+          classification_details: {
+            confidence: classification.confidence || 0.95,
+            raw_response: content,
+            reasoning: classification.reasoning || "Documento identificado como proforma",
+          },
+        })
+        .eq("id", invoiceId);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      return new Response(
+        JSON.stringify({ success: true, classification }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Regular invoice processing
     const validOperationTypes = [
       'interiores_iva_deducible',
       'facturas_compensaciones_agrarias',
@@ -209,6 +273,7 @@ serve(async (req) => {
       'importaciones',
       'suplidos',
       'kit_digital',
+      'no_aplica',
       'otro'
     ];
 
@@ -226,6 +291,7 @@ serve(async (req) => {
           confidence: classification.confidence,
           raw_response: content,
           reasoning: classification.reasoning,
+          logo_detected: classification.logo_detected,
           extracted_data: {
             idioma: classification.idioma,
             moneda: classification.moneda,

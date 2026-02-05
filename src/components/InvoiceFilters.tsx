@@ -1,4 +1,4 @@
-import { InvoiceType, OperationType, OPERATION_TYPE_LABELS, ClassificationStatus } from '@/types/invoice';
+import { InvoiceType, OperationType, OPERATION_TYPE_LABELS, INVOICE_TYPE_LABELS, ClassificationStatus } from '@/types/invoice';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { X } from 'lucide-react';
@@ -32,8 +32,9 @@ export function InvoiceFilters({ filters, onChange }: InvoiceFiltersProps) {
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="all">Todos los tipos</SelectItem>
-          <SelectItem value="emitida">Emitida</SelectItem>
-          <SelectItem value="recibida">Recibida</SelectItem>
+          {Object.entries(INVOICE_TYPE_LABELS).map(([key, label]) => (
+            <SelectItem key={key} value={key}>{label}</SelectItem>
+          ))}
         </SelectContent>
       </Select>
 
