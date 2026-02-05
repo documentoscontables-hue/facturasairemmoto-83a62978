@@ -14,6 +14,68 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_books: {
+        Row: {
+          created_at: string
+          file_name: string
+          file_path: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          file_name: string
+          file_path: string
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          file_name?: string
+          file_path?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      accounts: {
+        Row: {
+          account_code: string
+          account_description: string
+          book_id: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          account_code: string
+          account_description: string
+          book_id: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          account_code?: string
+          account_description?: string
+          book_id?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "accounts_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "account_books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       classification_feedback: {
         Row: {
           corrected_invoice_type: string | null
@@ -60,6 +122,7 @@ export type Database = {
       }
       invoices: {
         Row: {
+          assigned_account: string | null
           classification_details: Json | null
           classification_status: string
           client_name: string | null
@@ -75,6 +138,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          assigned_account?: string | null
           classification_details?: Json | null
           classification_status?: string
           client_name?: string | null
@@ -90,6 +154,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          assigned_account?: string | null
           classification_details?: Json | null
           classification_status?: string
           client_name?: string | null
@@ -159,6 +224,7 @@ export type Database = {
       get_user_invoices_admin: {
         Args: { target_user_id: string }
         Returns: {
+          assigned_account: string
           classification_details: Json
           classification_status: string
           client_name: string
