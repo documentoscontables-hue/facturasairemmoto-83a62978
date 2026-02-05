@@ -65,7 +65,8 @@ export function useInvoices() {
           throw new Error(`Formato no soportado: ${file.name}`);
         }
 
-        const filePath = `${user.id}/${Date.now()}-${file.name}`;
+        const sanitizedName = sanitizeFileName(file.name);
+        const filePath = `${user.id}/${Date.now()}-${sanitizedName}`;
         
         const { error: uploadError } = await supabase.storage
           .from('invoices')
