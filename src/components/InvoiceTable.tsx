@@ -47,6 +47,7 @@ export function InvoiceTable({ invoices, onDelete }: InvoiceTableProps) {
               <TableHead className="text-right">Total</TableHead>
               <TableHead>Clasificación</TableHead>
               <TableHead>Operación</TableHead>
+              <TableHead>Cuenta</TableHead>
               <TableHead>Estado</TableHead>
               <TableHead className="w-[50px]"></TableHead>
             </TableRow>
