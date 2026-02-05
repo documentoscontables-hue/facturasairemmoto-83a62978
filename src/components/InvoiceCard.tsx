@@ -79,7 +79,7 @@ export function InvoiceCard({
 
             {/* Extracted Data Summary - Only show if classified */}
             {invoice.classification_status === 'classified' && data && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-3 bg-muted/50 rounded-lg text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 p-3 bg-muted/50 rounded-lg text-sm">
                 <div className="flex items-center gap-1.5">
                   <Hash className="w-3.5 h-3.5 text-muted-foreground" />
                   <span className="truncate">{data.numero_factura || '-'}</span>
@@ -96,6 +96,14 @@ export function InvoiceCard({
                   <Globe className="w-3.5 h-3.5 text-muted-foreground" />
                   <span>{data.idioma || '-'} / {data.moneda || '-'}</span>
                 </div>
+                {invoice.assigned_account && (
+                  <div className="flex items-center gap-1.5">
+                    <FileCheck className="w-3.5 h-3.5 text-muted-foreground" />
+                    <Badge variant="secondary" className="font-mono text-xs">
+                      Cuenta: {invoice.assigned_account}
+                    </Badge>
+                  </div>
+                )}
               </div>
             )}
 
