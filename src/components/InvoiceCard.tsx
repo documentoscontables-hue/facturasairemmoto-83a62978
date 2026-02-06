@@ -210,7 +210,7 @@ export function InvoiceCard({
                         <span className="flex items-center gap-2">
                           <span className={cn(
                             "w-2 h-2 rounded-full",
-                            key === 'emitida' ? 'bg-emitida' : key === 'recibida' ? 'bg-recibida' : 'bg-muted'
+                            key === 'emitida' ? 'bg-emitida' : key === 'recibida' ? 'bg-recibida' : 'bg-muted-foreground'
                           )} />
                           {label}
                         </span>

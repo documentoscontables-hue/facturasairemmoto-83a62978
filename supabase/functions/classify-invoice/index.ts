@@ -8,14 +8,24 @@ const corsHeaders = {
 
 const CLASSIFICATION_PROMPT = `Eres un experto en clasificación y extracción de datos de facturas españolas. Analiza la factura y extrae TODA la información posible.
 
-**PASO 1 - DETECCIÓN DE PROFORMA:**
-PRIMERO, verifica si el documento es una PROFORMA. Busca las siguientes palabras en CUALQUIER IDIOMA:
+**PASO 1 - DETECCIÓN DE PROFORMA O ALBARÁN:**
+PRIMERO, verifica si el documento es una PROFORMA o un ALBARÁN. Busca las siguientes palabras en CUALQUIER IDIOMA:
+
+**Proforma:**
 - Español: "Proforma", "Factura Proforma", "Pro-forma"
 - Inglés: "Proforma", "Pro forma Invoice", "Proforma Invoice"
 - Francés: "Facture Proforma", "Pro forma"
 - Alemán: "Proforma-Rechnung", "Proformarechnung"
 - Italiano: "Fattura Proforma"
 - Portugués: "Fatura Proforma"
+
+**Albarán:**
+- Español: "Albarán", "Albaran", "Albarán de entrega", "Nota de entrega"
+- Inglés: "Delivery Note", "Delivery Slip", "Packing Slip", "Dispatch Note"
+- Francés: "Bon de livraison", "Bordereau de livraison"
+- Alemán: "Lieferschein"
+- Italiano: "Bolla di consegna", "Documento di trasporto", "DDT"
+- Portugués: "Guia de remessa", "Nota de entrega"
 
 Si detectas que es una PROFORMA, responde SOLO con:
 {
@@ -25,7 +35,15 @@ Si detectas que es una PROFORMA, responde SOLO con:
   "reasoning": "Documento identificado como proforma"
 }
 
-**SI NO ES PROFORMA, continúa con el análisis completo:**
+Si detectas que es un ALBARÁN, responde SOLO con:
+{
+  "invoice_type": "albaran",
+  "operation_type": "no_aplica",
+  "confidence": 0.95,
+  "reasoning": "Documento identificado como albarán"
+}
+
+**SI NO ES PROFORMA NI ALBARÁN, continúa con el análisis completo:**
 
 **INFORMACIÓN A EXTRAER:**
 
@@ -255,7 +273,7 @@ serve(async (req) => {
             {
               parts: [
                 { text: systemPrompt },
-                { text: "Analiza esta factura. PRIMERO verifica si es una PROFORMA. Si no lo es, extrae toda la información. Presta especial atención al LOGO para identificar al emisor:" },
+                { text: "Analiza esta factura. PRIMERO verifica si es una PROFORMA o un ALBARÁN. Si no lo es, extrae toda la información. Presta especial atención al LOGO para identificar al emisor:" },
                 {
                   inline_data: {
                     mime_type: mimeType,
@@ -298,19 +316,21 @@ serve(async (req) => {
       throw new Error("Invalid AI response format");
     }
 
-    // Handle proforma invoices - minimal data needed
-    if (classification.invoice_type === 'proforma') {
+    // Handle proforma and albaran invoices - minimal data needed
+    if (classification.invoice_type === 'proforma' || classification.invoice_type === 'albaran') {
+      const docType = classification.invoice_type;
+      const docLabel = docType === 'proforma' ? 'proforma' : 'albarán';
       const { error: updateError } = await supabase
         .from("invoices")
         .update({
-          invoice_type: 'proforma',
+          invoice_type: docType,
           operation_type: 'no_aplica',
           classification_status: "classified",
           assigned_account: null,
           classification_details: {
             confidence: classification.confidence || 0.95,
             raw_response: content,
-            reasoning: classification.reasoning || "Documento identificado como proforma",
+            reasoning: classification.reasoning || `Documento identificado como ${docLabel}`,
           },
         })
         .eq("id", invoiceId);

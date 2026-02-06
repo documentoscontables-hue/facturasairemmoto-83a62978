@@ -86,6 +86,18 @@ export function ClassificationFeedback({
                     Recibida
                   </span>
                 </SelectItem>
+                <SelectItem value="proforma">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-muted-foreground" />
+                    Proforma
+                  </span>
+                </SelectItem>
+                <SelectItem value="albaran">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-muted-foreground" />
+                    Albarán
+                  </span>
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
