@@ -55,45 +55,77 @@ export function useInvoices() {
       if (!user) throw new Error('Not authenticated');
       if (!clientName.trim()) throw new Error('El nombre del cliente es requerido');
 
-      const results = [];
+      const results: { file: string; success: boolean; error?: string }[] = [];
+      
       for (const file of files) {
-        const fileExt = file.name.split('.').pop()?.toLowerCase();
-        const isPdf = fileExt === 'pdf';
-        const isImage = ['jpg', 'jpeg', 'png', 'webp'].includes(fileExt || '');
+        try {
+          const fileExt = file.name.split('.').pop()?.toLowerCase();
+          const isPdf = fileExt === 'pdf';
+          const isImage = ['jpg', 'jpeg', 'png', 'webp'].includes(fileExt || '');
 
-        if (!isPdf && !isImage) {
-          throw new Error(`Formato no soportado: ${file.name}`);
+          if (!isPdf && !isImage) {
+            results.push({ file: file.name, success: false, error: 'Formato no soportado' });
+            continue;
+          }
+
+          const sanitizedName = sanitizeFileName(file.name);
+          const filePath = `${user.id}/${Date.now()}-${sanitizedName}`;
+          
+          console.log(`Uploading file: ${file.name} -> ${filePath} (${file.size} bytes, type: ${file.type})`);
+          
+          const { error: uploadError } = await supabase.storage
+            .from('invoices')
+            .upload(filePath, file);
+
+          if (uploadError) {
+            console.error(`Storage upload error for ${file.name}:`, uploadError);
+            results.push({ file: file.name, success: false, error: uploadError.message });
+            continue;
+          }
+
+          const { data: invoiceData, error: insertError } = await supabase
+            .from('invoices')
+            .insert({
+              user_id: user.id,
+              file_name: file.name,
+              file_path: filePath,
+              file_type: isPdf ? 'pdf' : 'image',
+              client_name: clientName.trim(),
+            })
+            .select()
+            .single();
+
+          if (insertError) {
+            console.error(`DB insert error for ${file.name}:`, insertError);
+            results.push({ file: file.name, success: false, error: insertError.message });
+            continue;
+          }
+          
+          console.log(`Successfully uploaded: ${file.name}, id: ${invoiceData.id}`);
+          results.push({ file: file.name, success: true });
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : 'Error desconocido';
+          console.error(`Unexpected error uploading ${file.name}:`, err);
+          results.push({ file: file.name, success: false, error: errorMsg });
         }
-
-        const sanitizedName = sanitizeFileName(file.name);
-        const filePath = `${user.id}/${Date.now()}-${sanitizedName}`;
-        
-        const { error: uploadError } = await supabase.storage
-          .from('invoices')
-          .upload(filePath, file);
-
-        if (uploadError) throw uploadError;
-
-        const { data: invoiceData, error: insertError } = await supabase
-          .from('invoices')
-          .insert({
-            user_id: user.id,
-            file_name: file.name,
-            file_path: filePath,
-            file_type: isPdf ? 'pdf' : 'image',
-            client_name: clientName.trim(),
-          })
-          .select()
-          .single();
-
-        if (insertError) throw insertError;
-        results.push(invoiceData);
       }
-      return results;
+      
+      const successful = results.filter(r => r.success);
+      const failed = results.filter(r => !r.success);
+      
+      if (successful.length === 0 && failed.length > 0) {
+        throw new Error(`Error al subir: ${failed.map(f => `${f.file}: ${f.error}`).join(', ')}`);
+      }
+      
+      return { successful, failed };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
-      toast.success('Facturas subidas correctamente');
+      if (data.failed.length > 0) {
+        toast.warning(`${data.successful.length} subida(s), ${data.failed.length} con error: ${data.failed.map(f => f.file).join(', ')}`);
+      } else {
+        toast.success(`${data.successful.length} factura(s) subida(s) correctamente`);
+      }
     },
     onError: (error) => {
       toast.error(`Error al subir: ${error.message}`);
