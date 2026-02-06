@@ -107,7 +107,7 @@ export function InvoiceTable({ invoices, onDelete }: InvoiceTableProps) {
                         invoice.invoice_type === 'recibida' ? 'border-recibida text-recibida' :
                         'border-muted-foreground text-muted-foreground'
                       )}>
-                        {INVOICE_TYPE_LABELS[invoice.invoice_type]}
+                        {INVOICE_TYPE_LABELS[invoice.invoice_type as keyof typeof INVOICE_TYPE_LABELS]}
                       </Badge>
                     ) : '-'}
                   </TableCell>

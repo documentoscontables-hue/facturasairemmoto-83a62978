@@ -45,6 +45,7 @@ function InvoiceTypeBadge({ type }: { type: Invoice['invoice_type'] }) {
     emitida: 'bg-emitida/10 text-emitida',
     recibida: 'bg-recibida/10 text-recibida',
     proforma: 'bg-muted text-muted-foreground',
+    albaran: 'bg-muted text-muted-foreground',
   };
 
   return (
@@ -62,6 +63,7 @@ function DateGroup({ group, defaultOpen = false }: { group: GroupedInvoices; def
     emitidas: group.invoices.filter(i => i.invoice_type === 'emitida').length,
     recibidas: group.invoices.filter(i => i.invoice_type === 'recibida').length,
     proformas: group.invoices.filter(i => i.invoice_type === 'proforma').length,
+    albaranes: group.invoices.filter(i => i.invoice_type === 'albaran').length,
   };
 
   return (
@@ -95,6 +97,9 @@ function DateGroup({ group, defaultOpen = false }: { group: GroupedInvoices; def
                 )}
                 {stats.proformas > 0 && (
                   <Badge variant="secondary">{stats.proformas} proformas</Badge>
+                )}
+                {stats.albaranes > 0 && (
+                  <Badge variant="secondary">{stats.albaranes} albaranes</Badge>
                 )}
               </div>
             </div>
