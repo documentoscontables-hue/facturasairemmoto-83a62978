@@ -66,6 +66,7 @@ export function Dashboard() {
     recibidas: invoices.filter(i => i.invoice_type === 'recibida').length,
     proformas: invoices.filter(i => i.invoice_type === 'proforma').length,
     albaranes: invoices.filter(i => i.invoice_type === 'albaran').length,
+    tickets: invoices.filter(i => i.invoice_type === 'ticket').length,
     pending: invoices.filter(i => i.classification_status === 'pending').length,
   }), [invoices]);
 
@@ -155,13 +156,14 @@ export function Dashboard() {
 
       <main className="container mx-auto px-4 py-8 space-y-8">
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
           {[
             { label: 'Total', value: stats.total, color: 'bg-primary/10 text-primary' },
             { label: 'Emitidas', value: stats.emitidas, color: 'bg-emitida/10 text-emitida' },
             { label: 'Recibidas', value: stats.recibidas, color: 'bg-recibida/10 text-recibida' },
             { label: 'Proformas', value: stats.proformas, color: 'bg-muted text-muted-foreground' },
             { label: 'Albaranes', value: stats.albaranes, color: 'bg-muted text-muted-foreground' },
+            { label: 'Tickets', value: stats.tickets, color: 'bg-muted text-muted-foreground' },
             { label: 'Pendientes', value: stats.pending, color: 'bg-warning/10 text-warning' },
           ].map((stat) => (
             <Card key={stat.label} className="glass-card">

@@ -15,8 +15,8 @@ const CLASSIFICATION_PROMPT = `Eres un experto en clasificación y extracción d
 
 **RESPONDE SIEMPRE EN ESPAÑOL:** Todo el contenido de tu respuesta, incluyendo el campo "reasoning", DEBE estar en español. Nunca respondas en inglés ni en otro idioma.
 
-**PASO 1 - DETECCIÓN DE PROFORMA O ALBARÁN:**
-PRIMERO, verifica si el documento es una PROFORMA o un ALBARÁN. Busca las siguientes palabras en CUALQUIER IDIOMA:
+**PASO 1 - DETECCIÓN DE TIPO DE DOCUMENTO:**
+PRIMERO, verifica si el documento es una PROFORMA, un ALBARÁN o un TICKET. Busca las siguientes palabras en CUALQUIER IDIOMA:
 
 **Proforma:**
 - Español: "Proforma", "Factura Proforma", "Pro-forma"
@@ -34,6 +34,16 @@ PRIMERO, verifica si el documento es una PROFORMA o un ALBARÁN. Busca las sigui
 - Italiano: "Bolla di consegna", "Documento di trasporto", "DDT"
 - Portugués: "Guia de remessa", "Nota de entrega"
 
+**Ticket (recibo de compra):**
+Un ticket se identifica por la MAYORÍA de estos criterios (no se requieren todos):
+- Ausencia de datos del cliente/receptor (solo aparece la empresa vendedora)
+- Falta de desglose de IVA (usualmente dice "IVA incluido" o similar)
+- Formato vertical tipo POS/TPV (papel estrecho)
+- Frases tipo "Gracias por su compra", "Le atendió", "Ticket", "Recibo"
+- NO contiene las palabras "Factura", "Proforma" ni "Albarán"
+- NO incluye datos fiscales del receptor (NIF/CIF del cliente)
+IMPORTANTE: Si aparecen datos del cliente o los términos "Factura", "Proforma" o "Albarán", entonces NO es un ticket.
+
 Si detectas que es una PROFORMA, responde SOLO con:
 {
   "invoice_type": "proforma",
@@ -50,7 +60,15 @@ Si detectas que es un ALBARÁN, responde SOLO con:
   "reasoning": "Documento identificado como albarán"
 }
 
-**SI NO ES PROFORMA NI ALBARÁN, continúa con el análisis completo:**
+Si detectas que es un TICKET, responde SOLO con:
+{
+  "invoice_type": "ticket",
+  "operation_type": "no_aplica",
+  "confidence": 0.95,
+  "reasoning": "Documento identificado como ticket/recibo de compra"
+}
+
+**SI NO ES PROFORMA, ALBARÁN NI TICKET, continúa con el análisis completo:**
 
 **INFORMACIÓN A EXTRAER:**
 
@@ -123,6 +141,8 @@ Si el emisor (la otra empresa, NO {{CLIENT_NAME}}) NO es español y NO es de la 
 9. **kit_digital**: Subvención Kit Digital
 10. **otro**: Solo si no encaja en ninguna categoría
 
+{{FEW_SHOT_EXAMPLES}}
+
 Responde SOLO con JSON válido sin markdown:
 {
   "invoice_type": "emitida|recibida",
@@ -151,55 +171,81 @@ Responde SOLO con JSON válido sin markdown:
   "reasoning": "Breve explicación de la clasificación incluyendo cómo se usó el logo"
 }`;
 
+// Fetch recent user corrections for few-shot prompting
+async function getFewShotExamples(supabase: any, userId: string): Promise<string> {
+  const { data: feedback, error } = await supabase
+    .from("classification_feedback")
+    .select("original_invoice_type, original_operation_type, corrected_invoice_type, corrected_operation_type")
+    .eq("user_id", userId)
+    .eq("is_correct", false)
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (error || !feedback || feedback.length === 0) return "";
+
+  let examples = "\n\n**CORRECCIONES PREVIAS DEL USUARIO (aprende de estos errores):**\n";
+  for (const f of feedback) {
+    if (f.corrected_invoice_type || f.corrected_operation_type) {
+      examples += `- La IA clasificó como tipo="${f.original_invoice_type}", operación="${f.original_operation_type}" pero el usuario corrigió a tipo="${f.corrected_invoice_type || f.original_invoice_type}", operación="${f.corrected_operation_type || f.original_operation_type}". NO repitas este error.\n`;
+    }
+  }
+  return examples;
+}
+
+// Apply fail-safe: client_name determines emitida/recibida
+function applyEmitidaRecibidaFailSafe(classification: any, clientName: string): any {
+  if (classification.invoice_type === "proforma" || classification.invoice_type === "albaran" || classification.invoice_type === "ticket") {
+    return classification;
+  }
+
+  const emisor = (classification.nombre_emisor || "").toLowerCase().trim();
+  const client = clientName.toLowerCase().trim();
+
+  // Only mark as "emitida" if client name matches the emisor
+  if (classification.invoice_type === "emitida") {
+    const emisorMatchesClient = emisor.includes(client) || client.includes(emisor);
+    if (!emisorMatchesClient) {
+      console.log(`Fail-safe: Forcing to 'recibida'. Emisor "${emisor}" doesn't match client "${client}"`);
+      classification.invoice_type = "recibida";
+      classification.reasoning = (classification.reasoning || "") + " [Fail-safe: forzado a recibida porque el emisor no coincide con el nombre del cliente]";
+    }
+  }
+
+  return classification;
+}
+
 // Function to find the best matching account based on invoice description
 async function findMatchingAccount(
   supabase: any,
   userId: string,
   invoiceDescription: string
 ): Promise<string | null> {
-  // Get user's accounts
   const { data: accounts, error } = await supabase
     .from("accounts")
     .select("account_code, account_description")
     .eq("user_id", userId);
 
-  if (error || !accounts || accounts.length === 0) {
-    console.log("No accounts found for user or error:", error);
-    return null;
-  }
+  if (error || !accounts || accounts.length === 0) return null;
 
-  console.log(`Found ${accounts.length} accounts for matching`);
-  
-  // Simple keyword matching - find best match based on description similarity
   const descLower = (invoiceDescription || "").toLowerCase();
-  
   let bestMatch: { code: string; score: number } | null = null;
-  
+
   for (const account of accounts) {
     const accountDescLower = account.account_description.toLowerCase();
     const accountWords = accountDescLower.split(/\s+/);
-    
-    // Count matching words
     let matchScore = 0;
     for (const word of accountWords) {
-      if (word.length > 3 && descLower.includes(word)) {
-        matchScore += 1;
-      }
+      if (word.length > 3 && descLower.includes(word)) matchScore += 1;
     }
-    
-    // Also check if account description contains invoice description keywords
     const invoiceWords = descLower.split(/\s+/);
     for (const word of invoiceWords) {
-      if (word.length > 3 && accountDescLower.includes(word)) {
-        matchScore += 1;
-      }
+      if (word.length > 3 && accountDescLower.includes(word)) matchScore += 1;
     }
-    
     if (matchScore > 0 && (!bestMatch || matchScore > bestMatch.score)) {
       bestMatch = { code: account.account_code, score: matchScore };
     }
   }
-  
+
   return bestMatch?.code || null;
 }
 
@@ -210,14 +256,12 @@ serve(async (req) => {
 
   try {
     const { invoiceId } = await req.json();
-    
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const geminiApiKey = Deno.env.get("GEMINI_API_KEY")!;
 
-    if (!geminiApiKey) {
-      throw new Error("GEMINI_API_KEY is not configured");
-    }
+    if (!geminiApiKey) throw new Error("GEMINI_API_KEY is not configured");
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -227,50 +271,38 @@ serve(async (req) => {
       .eq("id", invoiceId)
       .single();
 
-    if (invoiceError || !invoice) {
-      throw new Error("Invoice not found");
-    }
+    if (invoiceError || !invoice) throw new Error("Invoice not found");
+    if (!invoice.client_name) throw new Error("El nombre del cliente es requerido para clasificar");
 
-    if (!invoice.client_name) {
-      throw new Error("El nombre del cliente es requerido para clasificar");
-    }
+    // Parallel: get accounts, feedback, and file URL
+    const [accountsResult, fewShotExamples, signedUrlResult] = await Promise.all([
+      supabase.from("accounts").select("id").eq("user_id", invoice.user_id).limit(1),
+      getFewShotExamples(supabase, invoice.user_id),
+      supabase.storage.from("invoices").createSignedUrl(invoice.file_path, 60),
+    ]);
 
-    // Check if user has any accounts for reconciliation
-    const { data: userAccounts } = await supabase
-      .from("accounts")
-      .select("id")
-      .eq("user_id", invoice.user_id)
-      .limit(1);
-    
-    const hasAccountBook = userAccounts && userAccounts.length > 0;
-    console.log("User has account book:", hasAccountBook);
+    const hasAccountBook = accountsResult.data && accountsResult.data.length > 0;
 
-    const { data: signedUrlData } = await supabase.storage
-      .from("invoices")
-      .createSignedUrl(invoice.file_path, 60);
+    if (!signedUrlResult.data?.signedUrl) throw new Error("Could not get file URL");
 
-    if (!signedUrlData?.signedUrl) {
-      throw new Error("Could not get file URL");
-    }
-
-    const fileResponse = await fetch(signedUrlData.signedUrl);
+    const fileResponse = await fetch(signedUrlResult.data.signedUrl);
     const fileBuffer = await fileResponse.arrayBuffer();
-    
+
     // Convert to base64 without spread operator (avoids stack overflow for large files)
     const uint8Array = new Uint8Array(fileBuffer);
-    let binaryString = '';
+    let binaryString = "";
     const chunkSize = 8192;
     for (let i = 0; i < uint8Array.length; i += chunkSize) {
       const chunk = uint8Array.subarray(i, i + chunkSize);
       binaryString += String.fromCharCode.apply(null, Array.from(chunk));
     }
     const base64Data = btoa(binaryString);
-    
-    const mimeType = invoice.file_type === 'pdf' 
-      ? 'application/pdf' 
-      : 'image/jpeg';
 
-    const systemPrompt = CLASSIFICATION_PROMPT.replace(/\{\{CLIENT_NAME\}\}/g, invoice.client_name);
+    const mimeType = invoice.file_type === "pdf" ? "application/pdf" : "image/jpeg";
+
+    const systemPrompt = CLASSIFICATION_PROMPT
+      .replace(/\{\{CLIENT_NAME\}\}/g, invoice.client_name)
+      .replace("{{FEW_SHOT_EXAMPLES}}", fewShotExamples);
 
     console.log("Sending request to Gemini for invoice:", invoiceId);
 
@@ -278,21 +310,14 @@ serve(async (req) => {
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [
             {
               parts: [
                 { text: systemPrompt },
-                { text: "Analiza esta factura. PRIMERO verifica si es una PROFORMA o un ALBARÁN. Si no lo es, extrae toda la información. Presta especial atención al LOGO para identificar al emisor:" },
-                {
-                  inline_data: {
-                    mime_type: mimeType,
-                    data: base64Data,
-                  },
-                },
+                { text: "Analiza esta factura. PRIMERO verifica si es una PROFORMA, ALBARÁN o TICKET. Si no lo es, extrae toda la información. Presta especial atención al LOGO para identificar al emisor:" },
+                { inline_data: { mime_type: mimeType, data: base64Data } },
               ],
             },
           ],
@@ -313,44 +338,38 @@ serve(async (req) => {
 
     const aiData = await aiResponse.json();
     const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!content) {
-      throw new Error("No response from AI");
-    }
+    if (!content) throw new Error("No response from AI");
 
     console.log("AI Response:", content);
 
     let classification;
     try {
-      const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim();
+      const cleanContent = content.replace(/```json\n?|\n?```/g, "").trim();
       classification = JSON.parse(cleanContent);
     } catch {
       console.error("Failed to parse AI response:", content);
       throw new Error("Invalid AI response format");
     }
 
-    // Handle proforma and albaran invoices - minimal data needed
-    if (classification.invoice_type === 'proforma' || classification.invoice_type === 'albaran') {
+    // Handle proforma, albaran and ticket - minimal data needed
+    if (classification.invoice_type === "proforma" || classification.invoice_type === "albaran" || classification.invoice_type === "ticket") {
       const docType = classification.invoice_type;
-      const docLabel = docType === 'proforma' ? 'proforma' : 'albarán';
       const { error: updateError } = await supabase
         .from("invoices")
         .update({
           invoice_type: docType,
-          operation_type: 'no_aplica',
+          operation_type: "no_aplica",
           classification_status: "classified",
           assigned_account: null,
           classification_details: {
             confidence: classification.confidence || 0.95,
             raw_response: content,
-            reasoning: classification.reasoning || `Documento identificado como ${docLabel}`,
+            reasoning: classification.reasoning || `Documento identificado como ${docType}`,
           },
         })
         .eq("id", invoiceId);
 
-      if (updateError) {
-        throw updateError;
-      }
+      if (updateError) throw updateError;
 
       return new Response(
         JSON.stringify({ success: true, classification }),
@@ -358,34 +377,27 @@ serve(async (req) => {
       );
     }
 
-    // Regular invoice processing
+    // Apply fail-safe for emitida/recibida
+    classification = applyEmitidaRecibidaFailSafe(classification, invoice.client_name);
+
+    // Validate operation type
     const validOperationTypes = [
-      'interiores_iva_deducible',
-      'facturas_compensaciones_agrarias',
-      'adquisiciones_intracomunitarias_bienes',
-      'inversion_sujeto_pasivo',
-      'iva_no_deducible',
-      'adquisiciones_intracomunitarias_servicios',
-      'importaciones',
-      'suplidos',
-      'kit_digital',
-      'no_aplica',
-      'otro'
+      "interiores_iva_deducible", "facturas_compensaciones_agrarias",
+      "adquisiciones_intracomunitarias_bienes", "inversion_sujeto_pasivo",
+      "iva_no_deducible", "adquisiciones_intracomunitarias_servicios",
+      "importaciones", "suplidos", "kit_digital", "no_aplica", "otro",
     ];
 
     if (!validOperationTypes.includes(classification.operation_type)) {
-      classification.operation_type = 'otro';
+      classification.operation_type = "otro";
     }
 
     // Perform account reconciliation if user has account book
     let assignedAccount: string | null = null;
     if (hasAccountBook) {
-      const description = classification.descripcion || '';
-      assignedAccount = await findMatchingAccount(supabase, invoice.user_id, description);
-      
-      // If no match found, assign default account 555
+      assignedAccount = await findMatchingAccount(supabase, invoice.user_id, classification.descripcion || "");
       if (!assignedAccount) {
-        assignedAccount = '555';
+        assignedAccount = "555";
         console.log("No matching account found, assigning default: 555");
       } else {
         console.log("Matched account:", assignedAccount);
@@ -429,16 +441,10 @@ serve(async (req) => {
       })
       .eq("id", invoiceId);
 
-    if (updateError) {
-      throw updateError;
-    }
+    if (updateError) throw updateError;
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
-        classification,
-        assigned_account: assignedAccount 
-      }),
+      JSON.stringify({ success: true, classification, assigned_account: assignedAccount }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
