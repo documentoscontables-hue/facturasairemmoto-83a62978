@@ -8,6 +8,13 @@ const corsHeaders = {
 
 const CLASSIFICATION_PROMPT = `Eres un experto en clasificación y extracción de datos de facturas españolas. Analiza la factura y extrae TODA la información posible.
 
+**CONTEXTO IMPORTANTE DEL CLIENTE:**
+- La empresa {{CLIENT_NAME}} es SIEMPRE una empresa española o de Islas Canarias.
+- Todas las empresas ingresadas como cliente en este sistema son españolas o canarias.
+- Esto es clave para determinar correctamente el tipo de operación.
+
+**RESPONDE SIEMPRE EN ESPAÑOL:** Todo el contenido de tu respuesta, incluyendo el campo "reasoning", DEBE estar en español. Nunca respondas en inglés ni en otro idioma.
+
 **PASO 1 - DETECCIÓN DE PROFORMA O ALBARÁN:**
 PRIMERO, verifica si el documento es una PROFORMA o un ALBARÁN. Busca las siguientes palabras en CUALQUIER IDIOMA:
 
@@ -97,15 +104,21 @@ IMPORTANTE: Para determinar si la factura es "emitida" o "recibida", utiliza MÚ
 - emitida: Si {{CLIENT_NAME}} es el Emisor (vende/presta servicio) - su logo/nombre aparece como quien factura
 - recibida: Si {{CLIENT_NAME}} es el Receptor (compra/recibe servicio) - su nombre aparece como cliente
 
-**Operacion**: Clasifica según estas categorías:
+**Operacion**: Clasifica según estas categorías, siguiendo este ORDEN DE PRIORIDAD para empresas NO españolas:
 
+**REGLA ESPECIAL PARA EMPRESAS FUERA DE ESPAÑA Y FUERA DE LA UE:**
+Si el emisor (la otra empresa, NO {{CLIENT_NAME}}) NO es español y NO es de la Unión Europea (países como CH, UK, US, CN, NO, IS, etc.):
+1. PRIMERO verifica si es **importaciones**: bienes físicos de fuera de la UE (con o sin DUA). Esta es la opción MÁS PROBABLE.
+2. SOLO si NO son bienes físicos (son servicios), entonces clasifica como **inversion_sujeto_pasivo**.
+
+**Categorías completas:**
 1. **interiores_iva_deducible**: NIF emisor español, IVA desglosado o exenta por ley española
 2. **facturas_compensaciones_agrarias**: Régimen Especial Agrario, IVA 10%
 3. **adquisiciones_intracomunitarias_bienes**: Emisor UE (NL, LU, IE, FR, DE, IT...), BIENES físicos
-4. **inversion_sujeto_pasivo**: "Reverse charge" o emisor fuera UE (CH, UK, US, NO, SE, IS)
+4. **inversion_sujeto_pasivo**: "Reverse charge" o SERVICIOS de emisor fuera UE (CH, UK, US, NO, SE, IS)
 5. **iva_no_deducible**: Factura no a nombre de la empresa o gastos personales
 6. **adquisiciones_intracomunitarias_servicios**: Emisor UE, SERVICIOS (software, hotel, consultoría)
-7. **importaciones**: Bienes de fuera UE con DUA
+7. **importaciones**: BIENES físicos de fuera UE (con o sin DUA). Priorizar sobre inversión sujeto pasivo.
 8. **suplidos**: Gastos adelantados por gestoría/asesoría
 9. **kit_digital**: Subvención Kit Digital
 10. **otro**: Solo si no encaja en ninguna categoría
