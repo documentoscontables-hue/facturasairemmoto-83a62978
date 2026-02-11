@@ -120,6 +120,35 @@ export type Database = {
           },
         ]
       }
+      coordinator_teams: {
+        Row: {
+          created_at: string
+          id: string
+          team_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          team_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          team_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coordinator_teams_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invoices: {
         Row: {
           assigned_account: string | null
@@ -176,6 +205,7 @@ export type Database = {
           created_at: string
           email: string
           id: string
+          team_id: string | null
           updated_at: string
           user_id: string
         }
@@ -183,6 +213,7 @@ export type Database = {
           created_at?: string
           email: string
           id?: string
+          team_id?: string | null
           updated_at?: string
           user_id: string
         }
@@ -190,8 +221,35 @@ export type Database = {
           created_at?: string
           email?: string
           id?: string
+          team_id?: string | null
           updated_at?: string
           user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profiles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      teams: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
         }
         Relationships: []
       }
@@ -258,9 +316,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_admin_or_superadmin: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
-      app_role: "admin" | "user"
+      app_role: "admin" | "user" | "superadmin" | "coordinador"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -388,7 +447,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "user"],
+      app_role: ["admin", "user", "superadmin", "coordinador"],
     },
   },
 } as const
