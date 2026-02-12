@@ -52,7 +52,7 @@ export function useInvoices() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: async ({ files, clientName }: { files: File[]; clientName: string }) => {
+    mutationFn: async ({ files, clientName, clientNit }: { files: File[]; clientName: string; clientNit?: string }) => {
       if (!user) throw new Error('Not authenticated');
       if (!clientName.trim()) throw new Error('El nombre del cliente es requerido');
 
@@ -84,15 +84,20 @@ export function useInvoices() {
             continue;
           }
 
+          const insertData: any = {
+            user_id: user.id,
+            file_name: file.name,
+            file_path: filePath,
+            file_type: isPdf ? 'pdf' : 'image',
+            client_name: clientName.trim(),
+          };
+          if (clientNit?.trim()) {
+            insertData.client_nit = clientNit.trim();
+          }
+
           const { data: invoiceData, error: insertError } = await supabase
             .from('invoices')
-            .insert({
-              user_id: user.id,
-              file_name: file.name,
-              file_path: filePath,
-              file_type: isPdf ? 'pdf' : 'image',
-              client_name: clientName.trim(),
-            })
+            .insert(insertData)
             .select()
             .single();
 

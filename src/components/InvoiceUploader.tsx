@@ -1,19 +1,20 @@
 import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, FileText, Image, X, Loader2, User } from 'lucide-react';
+import { Upload, FileText, Image, X, Loader2, User, Hash } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
 interface InvoiceUploaderProps {
-  onUpload: (params: { files: File[]; clientName: string }) => Promise<unknown>;
+  onUpload: (params: { files: File[]; clientName: string; clientNit: string }) => Promise<unknown>;
   isUploading: boolean;
 }
 
 export function InvoiceUploader({ onUpload, isUploading }: InvoiceUploaderProps) {
   const [files, setFiles] = useState<File[]>([]);
   const [clientName, setClientName] = useState('');
+  const [clientNit, setClientNit] = useState('');
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setFiles(prev => [...prev, ...acceptedFiles]);
@@ -36,9 +37,10 @@ export function InvoiceUploader({ onUpload, isUploading }: InvoiceUploaderProps)
 
   const handleUpload = async () => {
     if (files.length === 0 || !clientName.trim()) return;
-    await onUpload({ files, clientName: clientName.trim() });
+    await onUpload({ files, clientName: clientName.trim(), clientNit: clientNit.trim() });
     setFiles([]);
     setClientName('');
+    setClientNit('');
   };
 
   const canSubmit = files.length > 0 && clientName.trim().length > 0 && !isUploading;
@@ -60,6 +62,24 @@ export function InvoiceUploader({ onUpload, isUploading }: InvoiceUploaderProps)
         />
         <p className="text-xs text-muted-foreground">
           Este nombre determina si las facturas son emitidas o recibidas
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="client-nit" className="flex items-center gap-2">
+          <Hash className="w-4 h-4" />
+          NIF/CIF del Cliente / Empresa
+        </Label>
+        <Input
+          id="client-nit"
+          placeholder="Ej: B12345678"
+          value={clientNit}
+          onChange={(e) => setClientNit(e.target.value)}
+          disabled={isUploading}
+          className="bg-background"
+        />
+        <p className="text-xs text-muted-foreground">
+          Identificador fiscal para cruzar con los datos del documento
         </p>
       </div>
 
