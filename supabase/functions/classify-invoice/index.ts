@@ -65,7 +65,8 @@ Identifica el país del emisor (proveedor):
 
 **C. Lógica Geográfica para FACTURAS EMITIDAS:**
 Identifica el país del receptor. Si el receptor es de la UE, se verificará su NIF en VIES. Si está registrado → operación intracomunitaria con VIES verificado. Si NO está registrado → **no_registrado_vies**.
-Si no aplica ninguna regla de texto especial (ISP, Suplidos, etc.) y es España → **no_aplica**.
+Si el emisor está en España y la factura incluye IVA español → **interiores_iva_deducible**.
+Si no aplica ninguna regla especial → **no_aplica**.
 
 **REGLAS DE CONTROL INTERNO:**
 - Países UE: Solo los 27 miembros actuales. UK, Suiza, Noruega, Colombia son Extracomunitarios.

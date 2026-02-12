@@ -54,7 +54,8 @@ Si es PROFORMA, ALBARÁN, TICKET o NO ES FACTURA, responde SOLO con:
 
 **C. Lógica Geográfica para FACTURAS EMITIDAS:**
 Si receptor es UE, verificar NIF en VIES. Si NO registrado → **no_registrado_vies**.
-Si no aplica regla de texto especial y es España → **no_aplica**.
+Si el emisor está en España y la factura incluye IVA español → **interiores_iva_deducible**.
+Si no aplica ninguna regla especial → **no_aplica**.
 
 **REGLAS DE CONTROL:**
 - Países UE: Solo 27 miembros actuales. UK, Suiza, Noruega son Extracomunitarios.
