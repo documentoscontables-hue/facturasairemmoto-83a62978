@@ -6,69 +6,74 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const CLASSIFICATION_PROMPT = `Eres un experto en clasificación y extracción de datos de facturas españolas. Analiza la factura y extrae TODA la información posible.
+const CLASSIFICATION_PROMPT = `Eres un experto en clasificación y extracción de datos de facturas españolas. Analiza el documento y extrae TODA la información posible.
 
-**CONTEXTO IMPORTANTE DEL CLIENTE:**
-- La empresa {{CLIENT_NAME}} es SIEMPRE una empresa española o de Islas Canarias.
-- Todas las empresas ingresadas como cliente en este sistema son españolas o canarias.
-- Esto es clave para determinar correctamente el tipo de operación.
+**PASO 1 - DETECCIÓN DEL TIPO DE DOCUMENTO:**
+Clasifica el documento en UNA de estas categorías:
 
-**RESPONDE SIEMPRE EN ESPAÑOL:** Todo el contenido de tu respuesta, incluyendo el campo "reasoning", DEBE estar en español. Nunca respondas en inglés ni en otro idioma.
+1. **Factura Emitida (emitida)**: Factura donde {{CLIENT_NAME}} es el EMISOR (vende/presta servicio)
+2. **Factura Recibida (recibida)**: Factura donde {{CLIENT_NAME}} es el RECEPTOR (compra/recibe servicio)
+3. **Albarán (albaran)**: Documento de entrega. Palabras clave en cualquier idioma:
+   - Español: "Albarán", "Albaran", "Albarán de entrega", "Nota de entrega"
+   - Inglés: "Delivery Note", "Delivery Slip", "Packing Slip", "Dispatch Note"
+   - Francés: "Bon de livraison", "Bordereau de livraison"
+   - Alemán: "Lieferschein"
+   - Italiano: "Bolla di consegna", "Documento di trasporto", "DDT"
+   - Portugués: "Guia de remessa", "Nota de entrega"
+4. **Proforma (proforma)**: Factura proforma. Palabras clave en cualquier idioma:
+   - Español: "Proforma", "Factura Proforma", "Pro-forma"
+   - Inglés: "Proforma", "Pro forma Invoice", "Proforma Invoice"
+   - Francés: "Facture Proforma", "Pro forma"
+   - Alemán: "Proforma-Rechnung", "Proformarechnung"
+   - Italiano: "Fattura Proforma"
+   - Portugués: "Fatura Proforma"
+5. **Ticket (ticket)**: Recibo simplificado / ticket de compra.
+   - Palabras clave: "Ticket", "Ticket de compra", "Recibo", "Recibo simplificado", "Receipt", "Sales Receipt", "Kassabon", "Kassenbon", "Scontrino", "Reçu"
+   - ESTRUCTURA: Formato estrecho tipo rollo de papel, texto en columnas simples, líneas de productos con cantidades y precios, total al final, datos de establecimiento (supermercado, gasolinera, restaurante, tienda), dirección, fecha/hora, número de caja/terminal, forma de pago. NO tienen membrete formal, logotipo grande ni datos fiscales completos del receptor.
+6. **No es Factura (no_es_factura)**: Cualquier documento que NO sea una factura, ni un albarán, ni una proforma, ni un ticket. Ejemplos: contratos, presupuestos, emails, documentos internos, extractos bancarios, nóminas, etc.
 
-**PASO 1 - DETECCIÓN DE TIPO DE DOCUMENTO:**
-PRIMERO, verifica si el documento es una PROFORMA, un ALBARÁN o un TICKET. Busca las siguientes palabras en CUALQUIER IDIOMA:
+**REGLAS DETALLADAS PARA IDENTIFICAR UN TICKET (MUY IMPORTANTE):**
+Clasifica como TICKET únicamente cuando el documento cumpla la MAYORÍA de estas características:
+1. **No incluye datos del cliente**: No aparece nombre/razón social del cliente. No aparece NIF/CIF/DNI del cliente. No aparece dirección del cliente.
+2. **No presenta elementos fiscales obligatorios de factura completa**: No hay "Número de factura" o "Factura Nº". No hay desglose de IVA (base imponible + tipo + cuota). El IVA suele aparecer como "IVA incluido" (propio de tickets).
+3. **Formato típico de ticket**: Documento corto, vertical, similar a recibo. Texto de TPV, cajero o sistema POS. Mensajes típicos: "Gracias por su compra", "Total a pagar", "IVA incluido", "Cajero", "TPV", "Cambio".
+4. **Si el documento muestra encabezado formal → NO ES TICKET**: Si dice "Factura", "Invoice", "Factura simplificada", "Factura proforma" → NO es ticket.
+5. **Si aparece cualquier dato del cliente (nombre, NIF, dirección) → NO es ticket.**
 
-**Proforma:**
-- Español: "Proforma", "Factura Proforma", "Pro-forma"
-- Inglés: "Proforma", "Pro forma Invoice", "Proforma Invoice"
-- Francés: "Facture Proforma", "Pro forma"
-- Alemán: "Proforma-Rechnung", "Proformarechnung"
-- Italiano: "Fattura Proforma"
-- Portugués: "Fatura Proforma"
+**REGLAS DE DESCARTE PARA TICKETS (evitar confusiones):**
+- ❌ NO confundir con FACTURA: Si existe proveedor + cliente + número de factura + IVA desglosado → NO es ticket.
+- ❌ NO confundir con PROFORMA: Si contiene "Proforma"/"Factura proforma" + datos del cliente + número de documento → NO es ticket.
+- ❌ NO confundir con ALBARÁN: Si contiene "Albarán"/"Delivery note"/"Packing slip" + información de entrega → NO es ticket.
+- ❌ NO confundir con NO_ES_FACTURA: Solo clasifica como no_es_factura si no es factura, ni ticket, ni proforma, ni albarán (ej: correos, contratos, presupuestos, pantallazos, movimientos bancarios).
 
-**Albarán:**
-- Español: "Albarán", "Albaran", "Albarán de entrega", "Nota de entrega"
-- Inglés: "Delivery Note", "Delivery Slip", "Packing Slip", "Dispatch Note"
-- Francés: "Bon de livraison", "Bordereau de livraison"
-- Alemán: "Lieferschein"
-- Italiano: "Bolla di consegna", "Documento di trasporto", "DDT"
-- Portugués: "Guia de remessa", "Nota de entrega"
+**⭐ REGLA DE ORO PARA TICKETS:** Si no hay datos del cliente → clasificar como TICKET, SALVO que el documento contenga la palabra "Factura", "Proforma" o "Albarán".
 
-**Ticket (recibo de compra):**
-Un ticket se identifica por la MAYORÍA de estos criterios (no se requieren todos):
-- Ausencia de datos del cliente/receptor (solo aparece la empresa vendedora)
-- Falta de desglose de IVA (usualmente dice "IVA incluido" o similar)
-- Formato vertical tipo POS/TPV (papel estrecho)
-- Frases tipo "Gracias por su compra", "Le atendió", "Ticket", "Recibo"
-- NO contiene las palabras "Factura", "Proforma" ni "Albarán"
-- NO incluye datos fiscales del receptor (NIF/CIF del cliente)
-IMPORTANTE: Si aparecen datos del cliente o los términos "Factura", "Proforma" o "Albarán", entonces NO es un ticket.
+**REGLAS DE CLASIFICACIÓN DE TIPO (MUY IMPORTANTE, SEGUIR EN ORDEN):**
+- PRIMERO: Busca si el documento contiene la palabra "Factura" (o "Invoice" en inglés, "Facture" en francés, "Rechnung" en alemán, "Fattura" en italiano). 
+- Si el documento dice explícitamente "Factura" (o equivalente en otro idioma) Y tiene datos fiscales completos → es emitida o recibida
+- Si NO dice "Factura" pero es un albarán → invoice_type = "albaran"
+- Si NO dice "Factura" pero es una proforma → invoice_type = "proforma"
+- Si NO dice "Factura" pero es un ticket/recibo → invoice_type = "ticket"
+- Si NO dice "Factura" y NO es albarán, ni proforma, ni ticket → invoice_type = "no_es_factura"
+- NUNCA clasificar como emitida o recibida un documento que no contenga la palabra "Factura" (o equivalente)
+- APLICA la Regla de Oro de Tickets ANTES de clasificar como no_es_factura
 
-Si detectas que es una PROFORMA, responde SOLO con:
+**REGLAS DE OPERACIÓN:**
+- Si invoice_type es "albaran" → operation_type = "no_aplica"
+- Si invoice_type es "proforma" → operation_type = "no_aplica"
+- Si invoice_type es "ticket" → operation_type = "ticket"
+- Si invoice_type es "no_es_factura" → operation_type = "no_aplica"
+- Si invoice_type es "emitida" o "recibida" → clasificar según las categorías de operación abajo
+
+Si es PROFORMA, ALBARÁN o NO ES FACTURA, responde SOLO con:
 {
-  "invoice_type": "proforma",
+  "invoice_type": "proforma|albaran|no_es_factura",
   "operation_type": "no_aplica",
   "confidence": 0.95,
-  "reasoning": "Documento identificado como proforma"
+  "reasoning": "Breve explicación"
 }
 
-Si detectas que es un ALBARÁN, responde SOLO con:
-{
-  "invoice_type": "albaran",
-  "operation_type": "no_aplica",
-  "confidence": 0.95,
-  "reasoning": "Documento identificado como albarán"
-}
-
-Si detectas que es un TICKET, responde SOLO con:
-{
-  "invoice_type": "ticket",
-  "operation_type": "no_aplica",
-  "confidence": 0.95,
-  "reasoning": "Documento identificado como ticket/recibo de compra"
-}
-
-**SI NO ES PROFORMA, ALBARÁN NI TICKET, continúa con el análisis completo:**
+**SI ES FACTURA (emitida/recibida) O TICKET, continúa con el análisis completo:**
 
 **INFORMACIÓN A EXTRAER:**
 
@@ -101,51 +106,41 @@ Si detectas que es un TICKET, responde SOLO con:
    - factura_exenta: true si está exenta de IVA, false si no
    - motivo_exencion: Si está exenta, indicar el motivo (ej: "Art. 20 Ley IVA")
 
-**CLASIFICACIÓN DEL TIPO (EMITIDA/RECIBIDA):**
+**CLASIFICACIÓN DEL TIPO (EMITIDA/RECIBIDA) - REGLA PRINCIPAL E INVIOLABLE:**
 
-IMPORTANTE: Para determinar si la factura es "emitida" o "recibida", utiliza MÚLTIPLES fuentes de información:
+REGLA ABSOLUTA (NUNCA VIOLAR):
+- **EMITIDA**: SOLO si {{CLIENT_NAME}} es el EMISOR (quien vende/factura). El nombre del emisor DEBE coincidir con {{CLIENT_NAME}}.
+- **RECIBIDA**: Si {{CLIENT_NAME}} NO es el emisor. Si el emisor es CUALQUIER otra empresa distinta de {{CLIENT_NAME}}, SIEMPRE es RECIBIDA.
 
-1. **Análisis del LOGO**: 
-   - Busca el logotipo de la empresa en la factura
-   - El logo generalmente pertenece al EMISOR (quien emite la factura)
-   - Compara el nombre/marca del logo con {{CLIENT_NAME}}
-   - Si el logo coincide con {{CLIENT_NAME}}, es EMITIDA
+DICHO DE OTRA FORMA:
+- Si el emisor se llama "Empresa X" y {{CLIENT_NAME}} NO es "Empresa X" → ES RECIBIDA. SIN EXCEPCIONES.
+- Si el emisor se llama "Empresa X" y {{CLIENT_NAME}} ES "Empresa X" → ES EMITIDA.
+- NO IMPORTA si el receptor dice "CLIENTE" o está vacío. Lo ÚNICO que importa es si {{CLIENT_NAME}} coincide con el EMISOR.
 
-2. **Posición del nombre**:
-   - El EMISOR suele aparecer en la parte superior/izquierda, con membrete
-   - El RECEPTOR aparece en el área de "Cliente:", "Facturar a:", "Bill to:"
+PASOS OBLIGATORIOS:
+1. **Identifica al EMISOR**: El emisor es quien aparece en el membrete/logo/parte superior de la factura, con sus datos fiscales principales.
+2. **Compara EMISOR con {{CLIENT_NAME}}**:
+   - ¿El nombre del EMISOR coincide o es similar a "{{CLIENT_NAME}}"? → invoice_type = "emitida"
+   - ¿El nombre del EMISOR es DIFERENTE de "{{CLIENT_NAME}}"? → invoice_type = "recibida"
+3. **NUNCA** clasifiques como "emitida" si el emisor no coincide con {{CLIENT_NAME}}, aunque el receptor diga "CLIENTE" o esté vacío.
 
-3. **NIF/CIF**:
-   - Compara el NIF del emisor y receptor con los datos conocidos de {{CLIENT_NAME}}
 
-**Tipo**: 
-- emitida: Si {{CLIENT_NAME}} es el Emisor (vende/presta servicio) - su logo/nombre aparece como quien factura
-- recibida: Si {{CLIENT_NAME}} es el Receptor (compra/recibe servicio) - su nombre aparece como cliente
+**Operacion** (solo para facturas emitidas/recibidas): Clasifica según estas categorías:
 
-**Operacion**: Clasifica según estas categorías, siguiendo este ORDEN DE PRIORIDAD para empresas NO españolas:
-
-**REGLA ESPECIAL PARA EMPRESAS FUERA DE ESPAÑA Y FUERA DE LA UE:**
-Si el emisor (la otra empresa, NO {{CLIENT_NAME}}) NO es español y NO es de la Unión Europea (países como CH, UK, US, CN, NO, IS, etc.):
-1. PRIMERO verifica si es **importaciones**: bienes físicos de fuera de la UE (con o sin DUA). Esta es la opción MÁS PROBABLE.
-2. SOLO si NO son bienes físicos (son servicios), entonces clasifica como **inversion_sujeto_pasivo**.
-
-**Categorías completas:**
 1. **interiores_iva_deducible**: NIF emisor español, IVA desglosado o exenta por ley española
 2. **facturas_compensaciones_agrarias**: Régimen Especial Agrario, IVA 10%
 3. **adquisiciones_intracomunitarias_bienes**: Emisor UE (NL, LU, IE, FR, DE, IT...), BIENES físicos
-4. **inversion_sujeto_pasivo**: "Reverse charge" o SERVICIOS de emisor fuera UE (CH, UK, US, NO, SE, IS)
+4. **inversion_sujeto_pasivo**: "Reverse charge" o emisor fuera UE (CH, UK, US, NO, SE, IS)
 5. **iva_no_deducible**: Factura no a nombre de la empresa o gastos personales
 6. **adquisiciones_intracomunitarias_servicios**: Emisor UE, SERVICIOS (software, hotel, consultoría)
-7. **importaciones**: BIENES físicos de fuera UE (con o sin DUA). Priorizar sobre inversión sujeto pasivo.
+7. **importaciones**: Bienes de fuera UE con DUA
 8. **suplidos**: Gastos adelantados por gestoría/asesoría
 9. **kit_digital**: Subvención Kit Digital
 10. **otro**: Solo si no encaja en ninguna categoría
 
-{{FEW_SHOT_EXAMPLES}}
-
 Responde SOLO con JSON válido sin markdown:
 {
-  "invoice_type": "emitida|recibida",
+  "invoice_type": "emitida|recibida|ticket|proforma|albaran|no_es_factura",
   "operation_type": "categoria_exacta",
   "confidence": 0.0-1.0,
   "idioma": "español",
@@ -171,81 +166,55 @@ Responde SOLO con JSON válido sin markdown:
   "reasoning": "Breve explicación de la clasificación incluyendo cómo se usó el logo"
 }`;
 
-// Fetch recent user corrections for few-shot prompting
-async function getFewShotExamples(supabase: any, userId: string): Promise<string> {
-  const { data: feedback, error } = await supabase
-    .from("classification_feedback")
-    .select("original_invoice_type, original_operation_type, corrected_invoice_type, corrected_operation_type")
-    .eq("user_id", userId)
-    .eq("is_correct", false)
-    .order("created_at", { ascending: false })
-    .limit(10);
-
-  if (error || !feedback || feedback.length === 0) return "";
-
-  let examples = "\n\n**CORRECCIONES PREVIAS DEL USUARIO (aprende de estos errores):**\n";
-  for (const f of feedback) {
-    if (f.corrected_invoice_type || f.corrected_operation_type) {
-      examples += `- La IA clasificó como tipo="${f.original_invoice_type}", operación="${f.original_operation_type}" pero el usuario corrigió a tipo="${f.corrected_invoice_type || f.original_invoice_type}", operación="${f.corrected_operation_type || f.original_operation_type}". NO repitas este error.\n`;
-    }
-  }
-  return examples;
-}
-
-// Apply fail-safe: client_name determines emitida/recibida
-function applyEmitidaRecibidaFailSafe(classification: any, clientName: string): any {
-  if (classification.invoice_type === "proforma" || classification.invoice_type === "albaran" || classification.invoice_type === "ticket") {
-    return classification;
-  }
-
-  const emisor = (classification.nombre_emisor || "").toLowerCase().trim();
-  const client = clientName.toLowerCase().trim();
-
-  // Only mark as "emitida" if client name matches the emisor
-  if (classification.invoice_type === "emitida") {
-    const emisorMatchesClient = emisor.includes(client) || client.includes(emisor);
-    if (!emisorMatchesClient) {
-      console.log(`Fail-safe: Forcing to 'recibida'. Emisor "${emisor}" doesn't match client "${client}"`);
-      classification.invoice_type = "recibida";
-      classification.reasoning = (classification.reasoning || "") + " [Fail-safe: forzado a recibida porque el emisor no coincide con el nombre del cliente]";
-    }
-  }
-
-  return classification;
-}
-
 // Function to find the best matching account based on invoice description
 async function findMatchingAccount(
   supabase: any,
   userId: string,
   invoiceDescription: string
 ): Promise<string | null> {
+  // Get user's accounts
   const { data: accounts, error } = await supabase
     .from("accounts")
     .select("account_code, account_description")
     .eq("user_id", userId);
 
-  if (error || !accounts || accounts.length === 0) return null;
+  if (error || !accounts || accounts.length === 0) {
+    console.log("No accounts found for user or error:", error);
+    return null;
+  }
 
+  console.log(`Found ${accounts.length} accounts for matching`);
+  
+  // Simple keyword matching - find best match based on description similarity
   const descLower = (invoiceDescription || "").toLowerCase();
+  
   let bestMatch: { code: string; score: number } | null = null;
-
+  
   for (const account of accounts) {
     const accountDescLower = account.account_description.toLowerCase();
     const accountWords = accountDescLower.split(/\s+/);
+    
+    // Count matching words
     let matchScore = 0;
     for (const word of accountWords) {
-      if (word.length > 3 && descLower.includes(word)) matchScore += 1;
+      if (word.length > 3 && descLower.includes(word)) {
+        matchScore += 1;
+      }
     }
+    
+    // Also check if account description contains invoice description keywords
     const invoiceWords = descLower.split(/\s+/);
     for (const word of invoiceWords) {
-      if (word.length > 3 && accountDescLower.includes(word)) matchScore += 1;
+      if (word.length > 3 && accountDescLower.includes(word)) {
+        matchScore += 1;
+      }
     }
+    
     if (matchScore > 0 && (!bestMatch || matchScore > bestMatch.score)) {
       bestMatch = { code: account.account_code, score: matchScore };
     }
   }
-
+  
   return bestMatch?.code || null;
 }
 
@@ -256,12 +225,14 @@ serve(async (req) => {
 
   try {
     const { invoiceId } = await req.json();
-
+    
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const geminiApiKey = Deno.env.get("GEMINI_API_KEY")!;
 
-    if (!geminiApiKey) throw new Error("GEMINI_API_KEY is not configured");
+    if (!geminiApiKey) {
+      throw new Error("GEMINI_API_KEY is not configured");
+    }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -271,105 +242,160 @@ serve(async (req) => {
       .eq("id", invoiceId)
       .single();
 
-    if (invoiceError || !invoice) throw new Error("Invoice not found");
-    if (!invoice.client_name) throw new Error("El nombre del cliente es requerido para clasificar");
+    if (invoiceError || !invoice) {
+      throw new Error("Invoice not found");
+    }
 
-    // Parallel: get accounts, feedback, and file URL
-    const [accountsResult, fewShotExamples, signedUrlResult] = await Promise.all([
-      supabase.from("accounts").select("id").eq("user_id", invoice.user_id).limit(1),
-      getFewShotExamples(supabase, invoice.user_id),
-      supabase.storage.from("invoices").createSignedUrl(invoice.file_path, 60),
-    ]);
+    if (!invoice.client_name) {
+      throw new Error("El nombre del cliente es requerido para clasificar");
+    }
 
-    const hasAccountBook = accountsResult.data && accountsResult.data.length > 0;
+    // Fetch past corrections from feedback to improve classification
+    const { data: feedbackData } = await supabase
+      .from("classification_feedback")
+      .select("original_invoice_type, original_operation_type, corrected_invoice_type, corrected_operation_type")
+      .eq("user_id", invoice.user_id)
+      .eq("is_correct", false)
+      .order("created_at", { ascending: false })
+      .limit(10);
 
-    if (!signedUrlResult.data?.signedUrl) throw new Error("Could not get file URL");
+    let feedbackPromptSection = "";
+    if (feedbackData && feedbackData.length > 0) {
+      const corrections = feedbackData.map((f: any, i: number) => 
+        `  ${i + 1}. La IA clasificó como tipo="${f.original_invoice_type}", operación="${f.original_operation_type}" → El usuario corrigió a tipo="${f.corrected_invoice_type}", operación="${f.corrected_operation_type}"`
+      ).join("\n");
+      feedbackPromptSection = `\n\n**CORRECCIONES ANTERIORES DEL USUARIO (aprende de estos errores y NO los repitas):**\n${corrections}\n`;
+    }
 
-    const fileResponse = await fetch(signedUrlResult.data.signedUrl);
+    // Check if user has any accounts for reconciliation
+    const { data: userAccounts } = await supabase
+      .from("accounts")
+      .select("id")
+      .eq("user_id", invoice.user_id)
+      .limit(1);
+    
+    const hasAccountBook = userAccounts && userAccounts.length > 0;
+    console.log("User has account book:", hasAccountBook);
+
+    const { data: signedUrlData } = await supabase.storage
+      .from("invoices")
+      .createSignedUrl(invoice.file_path, 60);
+
+    if (!signedUrlData?.signedUrl) {
+      throw new Error("Could not get file URL");
+    }
+
+    const fileResponse = await fetch(signedUrlData.signedUrl);
     const fileBuffer = await fileResponse.arrayBuffer();
-
+    
     // Convert to base64 without spread operator (avoids stack overflow for large files)
     const uint8Array = new Uint8Array(fileBuffer);
-    let binaryString = "";
+    let binaryString = '';
     const chunkSize = 8192;
     for (let i = 0; i < uint8Array.length; i += chunkSize) {
       const chunk = uint8Array.subarray(i, i + chunkSize);
       binaryString += String.fromCharCode.apply(null, Array.from(chunk));
     }
     const base64Data = btoa(binaryString);
+    
+    const mimeType = invoice.file_type === 'pdf' 
+      ? 'application/pdf' 
+      : 'image/jpeg';
 
-    const mimeType = invoice.file_type === "pdf" ? "application/pdf" : "image/jpeg";
-
-    const systemPrompt = CLASSIFICATION_PROMPT
-      .replace(/\{\{CLIENT_NAME\}\}/g, invoice.client_name)
-      .replace("{{FEW_SHOT_EXAMPLES}}", fewShotExamples);
+    const systemPrompt = CLASSIFICATION_PROMPT.replace(/\{\{CLIENT_NAME\}\}/g, invoice.client_name) + feedbackPromptSection;
 
     console.log("Sending request to Gemini for invoice:", invoiceId);
 
-    const aiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: systemPrompt },
-                { text: "Analiza esta factura. PRIMERO verifica si es una PROFORMA, ALBARÁN o TICKET. Si no lo es, extrae toda la información. Presta especial atención al LOGO para identificar al emisor:" },
-                { inline_data: { mime_type: mimeType, data: base64Data } },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            topP: 0.95,
-            maxOutputTokens: 2048,
-          },
-        }),
-      }
-    );
+    // Retry with exponential backoff for rate limits
+    const MAX_RETRIES = 5;
+    let aiData: any = null;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const aiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: systemPrompt },
+                  { text: "Analiza esta factura. PRIMERO verifica si es una PROFORMA o un ALBARÁN. Si no lo es, extrae toda la información. Presta especial atención al LOGO para identificar al emisor:" },
+                  { inline_data: { mime_type: mimeType, data: base64Data } },
+                ],
+              },
+            ],
+            generationConfig: { temperature: 0.1, topP: 0.95, maxOutputTokens: 2048 },
+          }),
+        }
+      );
 
-    if (!aiResponse.ok) {
+      if (aiResponse.ok) {
+        aiData = await aiResponse.json();
+        break;
+      }
+
+      const status = aiResponse.status;
       const errorText = await aiResponse.text();
-      console.error("Gemini API error:", errorText);
-      throw new Error("AI classification failed");
+
+      // Retry on 429 (rate limit) or 503 (overloaded)
+      if ((status === 429 || status === 503) && attempt < MAX_RETRIES) {
+        const waitMs = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 1000, 60000);
+        console.log(`Gemini API ${status}, retrying in ${Math.round(waitMs)}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        await new Promise(r => setTimeout(r, waitMs));
+        continue;
+      }
+
+      console.error("Gemini API error:", status, errorText);
+      throw new Error(`AI classification failed (status ${status})`);
     }
 
-    const aiData = await aiResponse.json();
+    if (!aiData) throw new Error("AI classification failed after retries");
+
     const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!content) throw new Error("No response from AI");
+
+    if (!content) {
+      throw new Error("No response from AI");
+    }
 
     console.log("AI Response:", content);
 
     let classification;
     try {
-      const cleanContent = content.replace(/```json\n?|\n?```/g, "").trim();
+      const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim();
       classification = JSON.parse(cleanContent);
     } catch {
       console.error("Failed to parse AI response:", content);
       throw new Error("Invalid AI response format");
     }
 
-    // Handle proforma, albaran and ticket - minimal data needed
-    if (classification.invoice_type === "proforma" || classification.invoice_type === "albaran" || classification.invoice_type === "ticket") {
+    // Handle proforma, albaran and no_es_factura - minimal data needed
+    if (classification.invoice_type === 'proforma' || classification.invoice_type === 'albaran' || classification.invoice_type === 'no_es_factura') {
       const docType = classification.invoice_type;
+      const docLabels: Record<string, string> = {
+        proforma: 'proforma',
+        albaran: 'albarán',
+        no_es_factura: 'no es factura',
+      };
+      const docLabel = docLabels[docType] || docType;
       const { error: updateError } = await supabase
         .from("invoices")
         .update({
           invoice_type: docType,
-          operation_type: "no_aplica",
+          operation_type: 'no_aplica',
           classification_status: "classified",
           assigned_account: null,
           classification_details: {
             confidence: classification.confidence || 0.95,
             raw_response: content,
-            reasoning: classification.reasoning || `Documento identificado como ${docType}`,
+            reasoning: classification.reasoning || `Documento identificado como ${docLabel}`,
           },
         })
         .eq("id", invoiceId);
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        throw updateError;
+      }
 
       return new Response(
         JSON.stringify({ success: true, classification }),
@@ -377,28 +403,66 @@ serve(async (req) => {
       );
     }
 
-    // Apply fail-safe for emitida/recibida
-    classification = applyEmitidaRecibidaFailSafe(classification, invoice.client_name);
-
-    // Validate operation type
+    // Regular invoice processing
     const validOperationTypes = [
-      "interiores_iva_deducible", "facturas_compensaciones_agrarias",
-      "adquisiciones_intracomunitarias_bienes", "inversion_sujeto_pasivo",
-      "iva_no_deducible", "adquisiciones_intracomunitarias_servicios",
-      "importaciones", "suplidos", "kit_digital", "no_aplica", "otro",
+      'interiores_iva_deducible',
+      'facturas_compensaciones_agrarias',
+      'adquisiciones_intracomunitarias_bienes',
+      'inversion_sujeto_pasivo',
+      'iva_no_deducible',
+      'adquisiciones_intracomunitarias_servicios',
+      'importaciones',
+      'suplidos',
+      'kit_digital',
+      'no_aplica',
+      'ticket',
+      'otro'
     ];
 
+    // Force operation_type to "ticket" when invoice_type is "ticket"
+    if (classification.invoice_type === 'ticket') {
+      classification.operation_type = 'ticket';
+    }
+
     if (!validOperationTypes.includes(classification.operation_type)) {
-      classification.operation_type = "otro";
+      classification.operation_type = 'otro';
+    }
+
+    // POST-CLASSIFICATION VALIDATION: Ensure emitida/recibida is correct based on client_name
+    if (classification.invoice_type === 'emitida' || classification.invoice_type === 'recibida') {
+      const clientNameLower = (invoice.client_name || '').toLowerCase().trim();
+      const emisorLower = (classification.nombre_emisor || '').toLowerCase().trim();
+      const receptorLower = (classification.nombre_receptor || '').toLowerCase().trim();
+
+      const clientMatchesEmisor = emisorLower.includes(clientNameLower) || clientNameLower.includes(emisorLower);
+      const clientMatchesReceptor = receptorLower.includes(clientNameLower) || clientNameLower.includes(receptorLower);
+
+      if (classification.invoice_type === 'emitida' && !clientMatchesEmisor && clientMatchesReceptor) {
+        console.log(`POST-VALIDATION FIX: Changed from emitida to recibida. Client "${invoice.client_name}" matches receptor "${classification.nombre_receptor}", not emisor "${classification.nombre_emisor}"`);
+        classification.invoice_type = 'recibida';
+        classification.reasoning = (classification.reasoning || '') + ` [Corrección automática: el cliente "${invoice.client_name}" coincide con el receptor, no con el emisor, por lo tanto es recibida.]`;
+      } else if (classification.invoice_type === 'recibida' && !clientMatchesReceptor && clientMatchesEmisor) {
+        console.log(`POST-VALIDATION FIX: Changed from recibida to emitida. Client "${invoice.client_name}" matches emisor "${classification.nombre_emisor}", not receptor "${classification.nombre_receptor}"`);
+        classification.invoice_type = 'emitida';
+        classification.reasoning = (classification.reasoning || '') + ` [Corrección automática: el cliente "${invoice.client_name}" coincide con el emisor, no con el receptor, por lo tanto es emitida.]`;
+      } else if (!clientMatchesEmisor && !clientMatchesReceptor) {
+        // Client doesn't match either - default to recibida (most common case: client receives invoices)
+        console.log(`POST-VALIDATION: Client "${invoice.client_name}" doesn't match emisor "${classification.nombre_emisor}" nor receptor "${classification.nombre_receptor}". Defaulting to recibida.`);
+        classification.invoice_type = 'recibida';
+        classification.reasoning = (classification.reasoning || '') + ` [Corrección automática: el cliente "${invoice.client_name}" no coincide con el emisor, se asume recibida.]`;
+      }
     }
 
     // Perform account reconciliation if user has account book
     let assignedAccount: string | null = null;
     if (hasAccountBook) {
-      assignedAccount = await findMatchingAccount(supabase, invoice.user_id, classification.descripcion || "");
+      const description = classification.descripcion || '';
+      assignedAccount = await findMatchingAccount(supabase, invoice.user_id, description);
+      
+      // If no match found, assign default account 555
       if (!assignedAccount) {
-        assignedAccount = "555";
-        console.log("No matching account found, assigning default: 555");
+        assignedAccount = 'NO ENCONTRADO';
+        console.log("No matching account found, assigning: NO ENCONTRADO");
       } else {
         console.log("Matched account:", assignedAccount);
       }
@@ -441,10 +505,16 @@ serve(async (req) => {
       })
       .eq("id", invoiceId);
 
-    if (updateError) throw updateError;
+    if (updateError) {
+      throw updateError;
+    }
 
     return new Response(
-      JSON.stringify({ success: true, classification, assigned_account: assignedAccount }),
+      JSON.stringify({ 
+        success: true, 
+        classification,
+        assigned_account: assignedAccount 
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {

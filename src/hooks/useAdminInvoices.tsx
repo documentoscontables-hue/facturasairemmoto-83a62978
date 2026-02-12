@@ -21,30 +21,25 @@ interface InvoiceRow {
   classification_status: string;
   classification_details: Record<string, unknown> | null;
   feedback_status: string | null;
+  assigned_account: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export function useAdminInvoices(userId?: string) {
-  const { isAdmin } = useAdmin();
+  const { isAdmin, isCoordinator } = useAdmin();
 
   const { data: userInvoices = [], isLoading, refetch } = useQuery({
     queryKey: ['adminInvoices', userId],
     queryFn: async () => {
       if (!userId) return [] as UserInvoiceData[];
 
-      // Get user profile
-      const { data: profile, error: profileError } = await supabase
+      const { data: profile } = await supabase
         .from('profiles')
         .select('user_id, email')
         .eq('user_id', userId)
         .maybeSingle();
 
-      if (profileError) {
-        console.error('Error fetching profile:', profileError);
-      }
-
-      // Use raw SQL call via rpc
       const { data: invoicesData, error: invoicesError } = await supabase
         .rpc('get_user_invoices_admin', { target_user_id: userId }) as { data: InvoiceRow[] | null; error: any };
 
@@ -65,6 +60,7 @@ export function useAdminInvoices(userId?: string) {
         classification_status: item.classification_status as ClassificationStatus,
         classification_details: item.classification_details as Invoice['classification_details'],
         feedback_status: item.feedback_status as 'correct' | 'corrected' | null,
+        assigned_account: item.assigned_account,
         created_at: item.created_at,
         updated_at: item.updated_at,
       })) as Invoice[];
@@ -75,12 +71,8 @@ export function useAdminInvoices(userId?: string) {
         invoices,
       }] as UserInvoiceData[];
     },
-    enabled: isAdmin === true && !!userId,
+    enabled: (isAdmin || isCoordinator) && !!userId,
   });
 
-  return {
-    userInvoices,
-    isLoading,
-    refetch,
-  };
+  return { userInvoices, isLoading, refetch };
 }

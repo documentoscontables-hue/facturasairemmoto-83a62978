@@ -31,6 +31,7 @@ export function useInvoices() {
       const { data, error } = await supabase
         .from('invoices')
         .select('*')
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -154,14 +155,33 @@ export function useInvoices() {
     },
   });
 
-  const classifyMutation = useMutation({
-    mutationFn: async (invoiceId: string) => {
+  // Helper: call classify with retries + backoff (handles edge function errors)
+  const classifyWithRetry = async (invoiceId: string, maxRetries = 4): Promise<any> => {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const { data, error } = await supabase.functions.invoke('classify-invoice', {
         body: { invoiceId },
       });
 
-      if (error) throw error;
-      return data;
+      if (!error) return data;
+
+      // Check for rate-limit / overload from edge function
+      const msg = error.message || '';
+      const isRetryable = msg.includes('429') || msg.includes('503') || msg.includes('rate') || msg.includes('overload');
+
+      if (isRetryable && attempt < maxRetries) {
+        const waitMs = Math.min(2000 * Math.pow(2, attempt) + Math.random() * 1000, 60000);
+        console.log(`Classify retry for ${invoiceId} in ${Math.round(waitMs)}ms (attempt ${attempt + 1})`);
+        await new Promise(r => setTimeout(r, waitMs));
+        continue;
+      }
+
+      throw error;
+    }
+  };
+
+  const classifyMutation = useMutation({
+    mutationFn: async (invoiceId: string) => {
+      return classifyWithRetry(invoiceId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
@@ -173,29 +193,37 @@ export function useInvoices() {
 
   const classifyAllMutation = useMutation({
     mutationFn: async ({ invoiceIds, invoices }: { invoiceIds: string[]; invoices: Invoice[] }) => {
-      const results = [];
+      const results: { id: string; success: boolean; data?: any; error?: any }[] = [];
+      const CONCURRENCY = 3; // Max parallel classifications
+      let completed = 0;
+
       setClassificationProgress({ current: 0, total: invoiceIds.length });
-      
-      for (let i = 0; i < invoiceIds.length; i++) {
-        const id = invoiceIds[i];
-        const invoice = invoices.find(inv => inv.id === id);
-        setClassificationProgress({ 
-          current: i + 1, 
-          total: invoiceIds.length,
-          currentFileName: invoice?.file_name
-        });
-        
-        try {
-          const { data, error } = await supabase.functions.invoke('classify-invoice', {
-            body: { invoiceId: id },
+
+      // Process in concurrent batches
+      const queue = [...invoiceIds];
+      const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+        while (queue.length > 0) {
+          const id = queue.shift()!;
+          const invoice = invoices.find(inv => inv.id === id);
+
+          try {
+            const data = await classifyWithRetry(id);
+            results.push({ id, success: true, data });
+          } catch (err) {
+            results.push({ id, success: false, error: err });
+          }
+
+          completed++;
+          setClassificationProgress({
+            current: completed,
+            total: invoiceIds.length,
+            currentFileName: invoice?.file_name,
           });
-          if (error) throw error;
-          results.push({ id, success: true, data });
           queryClient.invalidateQueries({ queryKey: ['invoices'] });
-        } catch (err) {
-          results.push({ id, success: false, error: err });
         }
-      }
+      });
+
+      await Promise.all(workers);
       return results;
     },
     onSuccess: (results) => {
@@ -297,6 +325,43 @@ export function useInvoices() {
     },
   });
 
+  const deleteAllMutation = useMutation({
+    mutationFn: async (invoiceIds: string[]) => {
+      const allInvoices = query.data || [];
+      const toDelete = allInvoices.filter(i => invoiceIds.includes(i.id));
+      if (toDelete.length === 0) throw new Error('No hay facturas para eliminar');
+
+      const BATCH_SIZE = 50;
+
+      // Delete files from storage in batches
+      const filePaths = toDelete.map(i => i.file_path);
+      for (let i = 0; i < filePaths.length; i += BATCH_SIZE) {
+        const batch = filePaths.slice(i, i + BATCH_SIZE);
+        const { error: storageError } = await supabase.storage.from('invoices').remove(batch);
+        if (storageError) console.error('Storage batch delete error:', storageError);
+      }
+
+      // Delete records from DB in batches
+      for (let i = 0; i < invoiceIds.length; i += BATCH_SIZE) {
+        const batch = invoiceIds.slice(i, i + BATCH_SIZE);
+        const { error } = await supabase
+          .from('invoices')
+          .delete()
+          .in('id', batch);
+        if (error) throw error;
+      }
+
+      return toDelete.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      toast.success(`${count} factura(s) eliminada(s)`);
+    },
+    onError: (error) => {
+      toast.error(`Error al eliminar: ${error.message}`);
+    },
+  });
+
   return {
     invoices: query.data || [],
     isLoading: query.isLoading,
@@ -312,5 +377,7 @@ export function useInvoices() {
     submitFeedback: feedbackMutation.mutateAsync,
     isSubmittingFeedback: feedbackMutation.isPending,
     deleteInvoice: deleteMutation.mutateAsync,
+    deleteAllInvoices: deleteAllMutation.mutateAsync,
+    isDeletingAll: deleteAllMutation.isPending,
   };
 }

@@ -1,4 +1,4 @@
-export type InvoiceType = 'emitida' | 'recibida' | 'proforma' | 'albaran' | 'ticket';
+export type InvoiceType = 'emitida' | 'recibida' | 'proforma' | 'albaran' | 'ticket' | 'no_es_factura';
 
 export type ClassificationStatus = 'pending' | 'classified' | 'error';
 
@@ -13,6 +13,7 @@ export type OperationType =
   | 'suplidos'
   | 'kit_digital'
   | 'no_aplica'
+  | 'ticket'
   | 'otro';
 
 export const OPERATION_TYPE_LABELS: Record<OperationType, string> = {
@@ -26,15 +27,17 @@ export const OPERATION_TYPE_LABELS: Record<OperationType, string> = {
   suplidos: 'Suplidos',
   kit_digital: 'Kit Digital (Subvención)',
   no_aplica: 'No Aplica',
+  ticket: 'Ticket',
   otro: 'Otro',
 };
 
 export const INVOICE_TYPE_LABELS: Record<InvoiceType, string> = {
-  emitida: 'Emitida',
-  recibida: 'Recibida',
+  emitida: 'Factura Emitida',
+  recibida: 'Factura Recibida',
   proforma: 'Proforma',
   albaran: 'Albarán',
   ticket: 'Ticket',
+  no_es_factura: 'No es Factura',
 };
 
 export interface ExtractedInvoiceData {

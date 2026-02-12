@@ -1,0 +1,2 @@
+ALTER TABLE public.invoices DROP CONSTRAINT IF EXISTS invoices_operation_type_check;
+ALTER TABLE public.invoices ADD CONSTRAINT invoices_operation_type_check CHECK (operation_type = ANY (ARRAY['interiores_iva_deducible'::text, 'facturas_compensaciones_agrarias'::text, 'adquisiciones_intracomunitarias_bienes'::text, 'inversion_sujeto_pasivo'::text, 'iva_no_deducible'::text, 'adquisiciones_intracomunitarias_servicios'::text, 'importaciones'::text, 'suplidos'::text, 'kit_digital'::text, 'no_aplica'::text, 'otro'::text, 'ticket'::text]));

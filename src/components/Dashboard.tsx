@@ -8,11 +8,13 @@ import { InvoiceTable } from './InvoiceTable';
 import { InvoiceFilters } from './InvoiceFilters';
 import { ClassificationProgress } from './ClassificationProgress';
 import { AdminPanel } from './AdminPanel';
+import { CoordinatorPanel } from './CoordinatorPanel';
 import { AccountBookUploader } from './AccountBookUploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Download, LogOut, Loader2, FolderOpen, Shield, Sparkles, LayoutGrid, Table } from 'lucide-react';
+import { Download, LogOut, Loader2, FolderOpen, Shield, Sparkles, LayoutGrid, Table, Users, Trash2 } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import logo from '@/assets/logo.png';
 import { InvoiceType, OperationType, ClassificationStatus } from '@/types/invoice';
 import JSZip from 'jszip';
@@ -27,7 +29,7 @@ interface Filters {
 
 export function Dashboard() {
   const { user, signOut } = useAuth();
-  const { isAdmin, isCheckingAdmin } = useAdmin();
+  const { isAdmin, isCoordinator, isCheckingRole } = useAdmin();
   const { 
     invoices, 
     isLoading, 
@@ -39,7 +41,9 @@ export function Dashboard() {
     classificationProgress,
     submitFeedback,
     isSubmittingFeedback,
-    deleteInvoice
+    deleteInvoice,
+    deleteAllInvoices,
+    isDeletingAll,
   } = useInvoices();
 
   const [filters, setFilters] = useState<Filters>({
@@ -49,6 +53,7 @@ export function Dashboard() {
   });
   const [isDownloading, setIsDownloading] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showCoordinatorPanel, setShowCoordinatorPanel] = useState(false);
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
 
   const filteredInvoices = useMemo(() => {
@@ -67,6 +72,7 @@ export function Dashboard() {
     proformas: invoices.filter(i => i.invoice_type === 'proforma').length,
     albaranes: invoices.filter(i => i.invoice_type === 'albaran').length,
     tickets: invoices.filter(i => i.invoice_type === 'ticket').length,
+    noEsFactura: invoices.filter(i => i.invoice_type === 'no_es_factura').length,
     pending: invoices.filter(i => i.classification_status === 'pending').length,
   }), [invoices]);
 
@@ -75,9 +81,12 @@ export function Dashboard() {
     [invoices]
   );
 
-  // Show admin panel if toggled (moved after all hooks)
   if (showAdminPanel && isAdmin) {
     return <AdminPanel onBack={() => setShowAdminPanel(false)} />;
+  }
+
+  if (showCoordinatorPanel && isCoordinator) {
+    return <CoordinatorPanel onBack={() => setShowCoordinatorPanel(false)} />;
   }
 
   const handleClassifyAll = async () => {
@@ -132,7 +141,6 @@ export function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -140,6 +148,12 @@ export function Dashboard() {
             <p className="text-xs text-muted-foreground">{user?.email}</p>
           </div>
           <div className="flex items-center gap-2">
+            {isCoordinator && (
+              <Button variant="outline" onClick={() => setShowCoordinatorPanel(true)}>
+                <Users className="w-4 h-4 mr-2" />
+                Mi Equipo
+              </Button>
+            )}
             {isAdmin && (
               <Button variant="outline" onClick={() => setShowAdminPanel(true)}>
                 <Shield className="w-4 h-4 mr-2" />
@@ -156,7 +170,7 @@ export function Dashboard() {
 
       <main className="container mx-auto px-4 py-8 space-y-8">
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
           {[
             { label: 'Total', value: stats.total, color: 'bg-primary/10 text-primary' },
             { label: 'Emitidas', value: stats.emitidas, color: 'bg-emitida/10 text-emitida' },
@@ -164,6 +178,7 @@ export function Dashboard() {
             { label: 'Proformas', value: stats.proformas, color: 'bg-muted text-muted-foreground' },
             { label: 'Albaranes', value: stats.albaranes, color: 'bg-muted text-muted-foreground' },
             { label: 'Tickets', value: stats.tickets, color: 'bg-muted text-muted-foreground' },
+            { label: 'No Factura', value: stats.noEsFactura, color: 'bg-destructive/10 text-destructive' },
             { label: 'Pendientes', value: stats.pending, color: 'bg-warning/10 text-warning' },
           ].map((stat) => (
             <Card key={stat.label} className="glass-card">
@@ -176,7 +191,6 @@ export function Dashboard() {
         </div>
 
         <div className="grid lg:grid-cols-3 gap-8">
-          {/* Upload Section */}
           <div className="lg:col-span-1 space-y-6">
             <Card className="glass-card">
               <CardHeader>
@@ -189,12 +203,9 @@ export function Dashboard() {
                 <InvoiceUploader onUpload={uploadInvoices} isUploading={isUploading} />
               </CardContent>
             </Card>
-            
-            {/* Account Book Uploader */}
             <AccountBookUploader />
           </div>
 
-          {/* Invoice List */}
           <div className="lg:col-span-2 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-4">
@@ -221,6 +232,37 @@ export function Dashboard() {
                     Clasificar todas ({stats.pending})
                   </Button>
                 )}
+                {filteredInvoices.length > 0 && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="destructive" disabled={isDeletingAll}>
+                        {isDeletingAll ? (
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        ) : (
+                          <Trash2 className="w-4 h-4 mr-2" />
+                        )}
+                        Eliminar todas ({filteredInvoices.length})
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>¿Eliminar {filteredInvoices.length} factura(s)?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Esta acción no se puede deshacer. Se eliminarán permanentemente las {filteredInvoices.length} factura(s) {filters.invoiceType !== 'all' || filters.operationType !== 'all' || filters.status !== 'all' ? 'filtradas' : ''} y sus archivos.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          onClick={() => deleteAllInvoices(filteredInvoices.map(i => i.id))}
+                        >
+                          Eliminar todas
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
                 <Button 
                   variant="outline" 
                   onClick={handleDownloadZip}
@@ -236,7 +278,6 @@ export function Dashboard() {
               </div>
             </div>
 
-            {/* Classification Progress */}
             {classificationProgress && (
               <ClassificationProgress progress={classificationProgress} />
             )}

@@ -46,6 +46,8 @@ function InvoiceTypeBadge({ type }: { type: Invoice['invoice_type'] }) {
     recibida: 'bg-recibida/10 text-recibida',
     proforma: 'bg-muted text-muted-foreground',
     albaran: 'bg-muted text-muted-foreground',
+    ticket: 'bg-muted text-muted-foreground',
+    no_es_factura: 'bg-destructive/10 text-destructive',
   };
 
   return (
@@ -64,6 +66,8 @@ function DateGroup({ group, defaultOpen = false }: { group: GroupedInvoices; def
     recibidas: group.invoices.filter(i => i.invoice_type === 'recibida').length,
     proformas: group.invoices.filter(i => i.invoice_type === 'proforma').length,
     albaranes: group.invoices.filter(i => i.invoice_type === 'albaran').length,
+    tickets: group.invoices.filter(i => i.invoice_type === 'ticket').length,
+    noEsFactura: group.invoices.filter(i => i.invoice_type === 'no_es_factura').length,
   };
 
   return (
@@ -100,6 +104,12 @@ function DateGroup({ group, defaultOpen = false }: { group: GroupedInvoices; def
                 )}
                 {stats.albaranes > 0 && (
                   <Badge variant="secondary">{stats.albaranes} albaranes</Badge>
+                )}
+                {stats.tickets > 0 && (
+                  <Badge variant="secondary">{stats.tickets} tickets</Badge>
+                )}
+                {stats.noEsFactura > 0 && (
+                  <Badge className="bg-destructive/10 text-destructive">{stats.noEsFactura} no factura</Badge>
                 )}
               </div>
             </div>

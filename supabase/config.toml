@@ -6,8 +6,8 @@ verify_jwt = false
 [functions.parse-account-book]
 verify_jwt = false
 
-[functions.admin-create-user]
+[functions.create-user]
 verify_jwt = false
 
-[functions.admin-delete-user]
+[functions.delete-user]
 verify_jwt = false

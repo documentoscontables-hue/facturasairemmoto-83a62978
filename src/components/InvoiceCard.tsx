@@ -108,88 +108,98 @@ export function InvoiceCard({
             )}
 
             {/* Expanded Details */}
-            {expanded && invoice.classification_status === 'classified' && data && (
+            {expanded && invoice.classification_status === 'classified' && (
               <div className="space-y-3 p-3 bg-muted/30 rounded-lg border border-border/50">
-                {/* Emisor */}
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase">
-                    <Building className="w-3.5 h-3.5" />
-                    Emisor
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <span className="font-medium">{data.nombre_emisor || '-'}</span>
-                      <span className="text-muted-foreground ml-2">({data.id_emisor || '-'})</span>
-                    </div>
-                    <div className="text-muted-foreground">
-                      {data.direccion_emisor || '-'} {data.codigo_postal_emisor && `(${data.codigo_postal_emisor})`}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Receptor */}
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase">
-                    <User className="w-3.5 h-3.5" />
-                    Receptor
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <span className="font-medium">{data.nombre_receptor || '-'}</span>
-                      <span className="text-muted-foreground ml-2">({data.id_receptor || '-'})</span>
-                    </div>
-                    <div className="text-muted-foreground">
-                      {data.direccion_receptor || '-'} {data.codigo_postal_receptor && `(${data.codigo_postal_receptor})`}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Importes */}
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase">
-                    <Euro className="w-3.5 h-3.5" />
-                    Importes
-                  </div>
-                  <div className="grid grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Subtotal: </span>
-                      <span className="font-medium">{formatCurrency(data.subtotal, data.moneda)}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">IVA ({data.porcentaje_iva || 0}%): </span>
-                      <span className="font-medium">{formatCurrency(data.impuestos, data.moneda)}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Total: </span>
-                      <span className="font-bold text-primary">{formatCurrency(data.total, data.moneda)}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Descripción */}
-                {data.descripcion && (
+                {/* Reasoning - always show */}
+                {invoice.classification_details?.reasoning && (
                   <div className="space-y-1">
                     <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase">
-                      <FileCheck className="w-3.5 h-3.5" />
-                      Descripción
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      Razonamiento de la IA
                     </div>
-                    <p className="text-sm">{data.descripcion}</p>
+                    <p className="text-sm italic text-muted-foreground">
+                      {invoice.classification_details.reasoning}
+                    </p>
                   </div>
                 )}
 
-                {/* Exención */}
-                {data.factura_exenta && (
-                  <div className="flex items-center gap-2 p-2 bg-warning/10 rounded text-sm">
-                    <AlertCircle className="w-4 h-4 text-warning" />
-                    <span>Factura exenta: {data.motivo_exencion || 'Motivo no especificado'}</span>
-                  </div>
-                )}
+                {data && (
+                  <>
+                    {/* Emisor */}
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase">
+                        <Building className="w-3.5 h-3.5" />
+                        Emisor
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <span className="font-medium">{data.nombre_emisor || '-'}</span>
+                          <span className="text-muted-foreground ml-2">({data.id_emisor || '-'})</span>
+                        </div>
+                        <div className="text-muted-foreground">
+                          {data.direccion_emisor || '-'} {data.codigo_postal_emisor && `(${data.codigo_postal_emisor})`}
+                        </div>
+                      </div>
+                    </div>
 
-                {/* Reasoning */}
-                {invoice.classification_details?.reasoning && (
-                  <div className="text-xs text-muted-foreground italic border-t pt-2">
-                    IA: {invoice.classification_details.reasoning}
-                  </div>
+                    {/* Receptor */}
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase">
+                        <User className="w-3.5 h-3.5" />
+                        Receptor
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <span className="font-medium">{data.nombre_receptor || '-'}</span>
+                          <span className="text-muted-foreground ml-2">({data.id_receptor || '-'})</span>
+                        </div>
+                        <div className="text-muted-foreground">
+                          {data.direccion_receptor || '-'} {data.codigo_postal_receptor && `(${data.codigo_postal_receptor})`}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Importes */}
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase">
+                        <Euro className="w-3.5 h-3.5" />
+                        Importes
+                      </div>
+                      <div className="grid grid-cols-3 gap-4 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">Subtotal: </span>
+                          <span className="font-medium">{formatCurrency(data.subtotal, data.moneda)}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">IVA ({data.porcentaje_iva || 0}%): </span>
+                          <span className="font-medium">{formatCurrency(data.impuestos, data.moneda)}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Total: </span>
+                          <span className="font-bold text-primary">{formatCurrency(data.total, data.moneda)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Descripción */}
+                    {data.descripcion && (
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase">
+                          <FileCheck className="w-3.5 h-3.5" />
+                          Descripción
+                        </div>
+                        <p className="text-sm">{data.descripcion}</p>
+                      </div>
+                    )}
+
+                    {/* Exención */}
+                    {data.factura_exenta && (
+                      <div className="flex items-center gap-2 p-2 bg-warning/10 rounded text-sm">
+                        <AlertCircle className="w-4 h-4 text-warning" />
+                        <span>Factura exenta: {data.motivo_exencion || 'Motivo no especificado'}</span>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -210,7 +220,7 @@ export function InvoiceCard({
                         <span className="flex items-center gap-2">
                           <span className={cn(
                             "w-2 h-2 rounded-full",
-                            key === 'emitida' ? 'bg-emitida' : key === 'recibida' ? 'bg-recibida' : 'bg-muted-foreground'
+                            key === 'emitida' ? 'bg-emitida' : key === 'recibida' ? 'bg-recibida' : key === 'no_es_factura' ? 'bg-destructive' : 'bg-muted-foreground'
                           )} />
                           {label}
                         </span>

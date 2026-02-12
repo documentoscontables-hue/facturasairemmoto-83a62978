@@ -77,13 +77,13 @@ export function ClassificationFeedback({
                 <SelectItem value="emitida">
                   <span className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-emitida" />
-                    Emitida
+                    Factura Emitida
                   </span>
                 </SelectItem>
                 <SelectItem value="recibida">
                   <span className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-recibida" />
-                    Recibida
+                    Factura Recibida
                   </span>
                 </SelectItem>
                 <SelectItem value="proforma">
@@ -96,6 +96,18 @@ export function ClassificationFeedback({
                   <span className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-muted-foreground" />
                     Albarán
+                  </span>
+                </SelectItem>
+                <SelectItem value="ticket">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-muted-foreground" />
+                    Ticket
+                  </span>
+                </SelectItem>
+                <SelectItem value="no_es_factura">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-destructive" />
+                    No es Factura
                   </span>
                 </SelectItem>
               </SelectContent>

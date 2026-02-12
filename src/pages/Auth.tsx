@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Loader2 } from 'lucide-react';
 import logo from '@/assets/logo.png';
 import { toast } from 'sonner';
@@ -20,7 +19,7 @@ export default function Auth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { signIn, signUp, user } = useAuth();
+  const { signIn, user } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -29,25 +28,19 @@ export default function Auth() {
     }
   }, [user, navigate]);
 
-  const handleSubmit = async (mode: 'signin' | 'signup') => {
+  const handleSubmit = async () => {
     try {
       const validated = authSchema.parse({ email, password });
       setIsLoading(true);
 
-      const { error } = mode === 'signin' 
-        ? await signIn(validated.email, validated.password)
-        : await signUp(validated.email, validated.password);
+      const { error } = await signIn(validated.email, validated.password);
 
       if (error) {
-        if (error.message.includes('User already registered')) {
-          toast.error('Este email ya está registrado');
-        } else if (error.message.includes('Invalid login credentials')) {
+        if (error.message.includes('Invalid login credentials')) {
           toast.error('Credenciales inválidas');
         } else {
           toast.error(error.message);
         }
-      } else if (mode === 'signup') {
-        toast.success('Revisa tu email para confirmar tu cuenta');
       }
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -70,35 +63,37 @@ export default function Auth() {
 
         <Card className="glass-card">
           <CardHeader className="space-y-1">
-            <CardTitle className="text-xl">Bienvenido</CardTitle>
+            <CardTitle className="text-xl">Iniciar Sesión</CardTitle>
             <CardDescription>
-              Inicia sesión para continuar
+              Ingresa tus credenciales para acceder al sistema
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="signin-email">Email</Label>
+              <Label htmlFor="email">Email</Label>
               <Input
-                id="signin-email"
+                id="email"
                 type="email"
                 placeholder="tu@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="signin-password">Contraseña</Label>
+              <Label htmlFor="password">Contraseña</Label>
               <Input
-                id="signin-password"
+                id="password"
                 type="password"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
               />
             </div>
             <Button 
               className="w-full gradient-primary"
-              onClick={() => handleSubmit('signin')}
+              onClick={handleSubmit}
               disabled={isLoading}
             >
               {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
