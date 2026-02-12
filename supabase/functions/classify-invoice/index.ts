@@ -8,135 +8,76 @@ const corsHeaders = {
 
 const CLASSIFICATION_PROMPT = `Eres un experto en clasificación y extracción de datos de facturas españolas. Analiza el documento y extrae TODA la información posible.
 
-**PASO 1 - DETECCIÓN DEL TIPO DE DOCUMENTO:**
-Clasifica el documento en UNA de estas categorías:
+**DATOS DEL CLIENTE:**
+- Nombre del Cliente: {{CLIENT_NAME}}
+- NIF/CIF del Cliente: {{CLIENT_NIT}}
 
-1. **Factura Emitida (emitida)**: Factura donde {{CLIENT_NAME}} es el EMISOR (vende/presta servicio)
-2. **Factura Recibida (recibida)**: Factura donde {{CLIENT_NAME}} es el RECEPTOR (compra/recibe servicio)
-3. **Albarán (albaran)**: Documento de entrega. Palabras clave en cualquier idioma:
-   - Español: "Albarán", "Albaran", "Albarán de entrega", "Nota de entrega"
-   - Inglés: "Delivery Note", "Delivery Slip", "Packing Slip", "Dispatch Note"
-   - Francés: "Bon de livraison", "Bordereau de livraison"
-   - Alemán: "Lieferschein"
-   - Italiano: "Bolla di consegna", "Documento di trasporto", "DDT"
-   - Portugués: "Guia de remessa", "Nota de entrega"
-4. **Proforma (proforma)**: Factura proforma. Palabras clave en cualquier idioma:
-   - Español: "Proforma", "Factura Proforma", "Pro-forma"
-   - Inglés: "Proforma", "Pro forma Invoice", "Proforma Invoice"
-   - Francés: "Facture Proforma", "Pro forma"
-   - Alemán: "Proforma-Rechnung", "Proformarechnung"
-   - Italiano: "Fattura Proforma"
-   - Portugués: "Fatura Proforma"
-5. **Ticket (ticket)**: Recibo simplificado / ticket de compra.
-   - Palabras clave: "Ticket", "Ticket de compra", "Recibo", "Recibo simplificado", "Receipt", "Sales Receipt", "Kassabon", "Kassenbon", "Scontrino", "Reçu"
-   - ESTRUCTURA: Formato estrecho tipo rollo de papel, texto en columnas simples, líneas de productos con cantidades y precios, total al final, datos de establecimiento (supermercado, gasolinera, restaurante, tienda), dirección, fecha/hora, número de caja/terminal, forma de pago. NO tienen membrete formal, logotipo grande ni datos fiscales completos del receptor.
-6. **No es Factura (no_es_factura)**: Cualquier documento que NO sea una factura, ni un albarán, ni una proforma, ni un ticket. Ejemplos: contratos, presupuestos, emails, documentos internos, extractos bancarios, nóminas, etc.
+**PROTOCOLO DE CLASIFICACIÓN DE TIPO (ORDEN JERÁRQUICO OBLIGATORIO):**
 
-**REGLAS DETALLADAS PARA IDENTIFICAR UN TICKET (MUY IMPORTANTE):**
-Clasifica como TICKET únicamente cuando el documento cumpla la MAYORÍA de estas características:
-1. **No incluye datos del cliente**: No aparece nombre/razón social del cliente. No aparece NIF/CIF/DNI del cliente. No aparece dirección del cliente.
-2. **No presenta elementos fiscales obligatorios de factura completa**: No hay "Número de factura" o "Factura Nº". No hay desglose de IVA (base imponible + tipo + cuota). El IVA suele aparecer como "IVA incluido" (propio de tickets).
-3. **Formato típico de ticket**: Documento corto, vertical, similar a recibo. Texto de TPV, cajero o sistema POS. Mensajes típicos: "Gracias por su compra", "Total a pagar", "IVA incluido", "Cajero", "TPV", "Cambio".
-4. **Si el documento muestra encabezado formal → NO ES TICKET**: Si dice "Factura", "Invoice", "Factura simplificada", "Factura proforma" → NO es ticket.
-5. **Si aparece cualquier dato del cliente (nombre, NIF, dirección) → NO es ticket.**
+Evalúa cada documento siguiendo este orden estricto:
 
-**REGLAS DE DESCARTE PARA TICKETS (evitar confusiones):**
-- ❌ NO confundir con FACTURA: Si existe proveedor + cliente + número de factura + IVA desglosado → NO es ticket.
-- ❌ NO confundir con PROFORMA: Si contiene "Proforma"/"Factura proforma" + datos del cliente + número de documento → NO es ticket.
-- ❌ NO confundir con ALBARÁN: Si contiene "Albarán"/"Delivery note"/"Packing slip" + información de entrega → NO es ticket.
-- ❌ NO confundir con NO_ES_FACTURA: Solo clasifica como no_es_factura si no es factura, ni ticket, ni proforma, ni albarán (ej: correos, contratos, presupuestos, pantallazos, movimientos bancarios).
+**PASO 1 - Validación de Identidad (Filtro de Ticket):**
+Busca en el documento impreso tanto el Nombre del Cliente ({{CLIENT_NAME}}) como el NIF/CIF del Cliente ({{CLIENT_NIT}}).
+- **Regla:** Si NI el nombre NI el NIF/CIF del cliente aparecen impresos en el documento, clasifícalo inmediatamente como **Ticket** (invoice_type = "ticket", operation_type = "ticket").
+- EXCEPCIÓN: Si el documento contiene la palabra "Factura", "Proforma" o "Albarán", NO es ticket aunque no aparezcan datos del cliente.
 
-**⭐ REGLA DE ORO PARA TICKETS:** Si no hay datos del cliente → clasificar como TICKET, SALVO que el documento contenga la palabra "Factura", "Proforma" o "Albarán".
+**PASO 2 - Documentos Provisionales:**
+Si se identifica al cliente (por nombre o NIF/CIF), verifica si el documento indica:
+- "Albarán" / "Delivery Note" / "Packing Slip" → invoice_type = "albaran", operation_type = "no_aplica"
+- "Proforma" / "Factura Proforma" / "Pro forma Invoice" → invoice_type = "proforma", operation_type = "no_aplica"
 
-**REGLAS DE CLASIFICACIÓN DE TIPO (MUY IMPORTANTE, SEGUIR EN ORDEN):**
-- PRIMERO: Busca si el documento contiene la palabra "Factura" (o "Invoice" en inglés, "Facture" en francés, "Rechnung" en alemán, "Fattura" en italiano). 
-- Si el documento dice explícitamente "Factura" (o equivalente en otro idioma) Y tiene datos fiscales completos → es emitida o recibida
-- Si NO dice "Factura" pero es un albarán → invoice_type = "albaran"
-- Si NO dice "Factura" pero es una proforma → invoice_type = "proforma"
-- Si NO dice "Factura" pero es un ticket/recibo → invoice_type = "ticket"
-- Si NO dice "Factura" y NO es albarán, ni proforma, ni ticket → invoice_type = "no_es_factura"
-- NUNCA clasificar como emitida o recibida un documento que no contenga la palabra "Factura" (o equivalente)
-- APLICA la Regla de Oro de Tickets ANTES de clasificar como no_es_factura
+**PASO 3 - Validación de Factura:**
+Si no es ticket, ni albarán, ni proforma:
+- Si NO aparece el término "Factura" (o equivalente: "Invoice", "Facture", "Rechnung", "Fattura") → invoice_type = "no_es_factura", operation_type = "no_aplica"
+- Si SÍ aparece: Clasificar como Factura Emitida o Factura Recibida según el rol del cliente.
 
-**REGLAS DE OPERACIÓN:**
-- Si invoice_type es "albaran" → operation_type = "no_aplica"
-- Si invoice_type es "proforma" → operation_type = "no_aplica"
-- Si invoice_type es "ticket" → operation_type = "ticket"
-- Si invoice_type es "no_es_factura" → operation_type = "no_aplica"
-- Si invoice_type es "emitida" o "recibida" → clasificar según las categorías de operación abajo
-
-Si es PROFORMA, ALBARÁN o NO ES FACTURA, responde SOLO con:
+Si es PROFORMA, ALBARÁN, TICKET o NO ES FACTURA, responde SOLO con:
 {
-  "invoice_type": "proforma|albaran|no_es_factura",
-  "operation_type": "no_aplica",
+  "invoice_type": "ticket|proforma|albaran|no_es_factura",
+  "operation_type": "ticket|no_aplica",
   "confidence": 0.95,
-  "reasoning": "Breve explicación"
+  "reasoning": "Breve explicación en español"
 }
 
-**SI ES FACTURA (emitida/recibida) O TICKET, continúa con el análisis completo:**
+**SI ES FACTURA (emitida/recibida), continúa con el análisis completo:**
+
+**CLASIFICACIÓN EMITIDA/RECIBIDA - REGLA ABSOLUTA:**
+- **EMITIDA**: SOLO si {{CLIENT_NAME}} o {{CLIENT_NIT}} coincide con el EMISOR.
+- **RECIBIDA**: Si {{CLIENT_NAME}} y {{CLIENT_NIT}} NO coinciden con el emisor.
+- El EMISOR es quien aparece en el membrete/logo/parte superior con sus datos fiscales.
+- NUNCA clasificar como "emitida" si el emisor no coincide con el cliente.
+
+**CLASIFICACIÓN DE TIPO DE OPERACIÓN:**
+
+**A. Prioridad por Texto (aplica a Emitidas y Recibidas):**
+Si detectas estas frases, la categoría es inmediata:
+- "Inversión del Sujeto Pasivo" / "Art. 84 LIVA" / "Reverse Charge" → **inversion_sujeto_pasivo**
+- "Suplido" / "Gasto por cuenta del cliente" → **suplidos**
+- "Régimen especial agricultura" / "Compensación agraria" → **facturas_compensaciones_agrarias**
+- "Kit Digital" / "Red.es" / "Acelera Pyme" → **kit_digital**
+- Factura de Amazon (emisor es Amazon, Amazon EU, Amazon Services, etc.) → **amazon**
+
+**B. Lógica Geográfica para FACTURAS RECIBIDAS:**
+Identifica el país del emisor (proveedor):
+
+- **España:** Gasto afecto a actividad con IVA → **interiores_iva_deducible**. Gastos personales/multas/no deducibles → **iva_no_deducible**.
+- **Unión Europea (27 países miembros actuales):** Bienes físicos/logística → **adquisiciones_intracomunitarias_bienes**. Software/SaaS/Servicios → **adquisiciones_intracomunitarias_servicios**.
+- **Extracomunitario (fuera UE: UK, Suiza, USA, Colombia, México, etc.):** Clasificar siempre como **importaciones** (salvo que mencione ISP explícitamente).
+
+**C. Lógica Geográfica para FACTURAS EMITIDAS:**
+Si no aplica ninguna regla de texto especial (ISP, Suplidos, etc.), clasificar como **no_aplica**.
+
+**REGLAS DE CONTROL INTERNO:**
+- Países UE: Solo los 27 miembros actuales. UK, Suiza, Noruega, Colombia son Extracomunitarios.
+- Idioma: El razonamiento DEBE ser 100% en español.
+- Contexto: El cliente siempre se considera de España o Islas Canarias.
 
 **INFORMACIÓN A EXTRAER:**
-
-1. **Datos Generales:**
-   - idioma: Idioma del documento (español, inglés, francés, etc.)
-   - moneda: Código de moneda (EUR, USD, GBP, etc.)
-   - fecha_factura: Fecha de emisión en formato YYYY-MM-DD
-   - numero_factura: Número o código de la factura
-
-2. **Importes:**
-   - subtotal: Base imponible (sin IVA)
-   - impuestos: Importe total de impuestos/IVA
-   - porcentaje_iva: Porcentaje de IVA aplicado (21, 10, 4, 0)
-   - total: Importe total de la factura
-
-3. **Emisor (quien emite la factura):**
-   - nombre_emisor: Nombre completo o razón social
-   - id_emisor: NIF/CIF del emisor
-   - direccion_emisor: Dirección completa
-   - codigo_postal_emisor: Código postal
-
-4. **Receptor (quien recibe la factura):**
-   - nombre_receptor: Nombre completo o razón social
-   - id_receptor: NIF/CIF del receptor
-   - direccion_receptor: Dirección completa
-   - codigo_postal_receptor: Código postal
-
-5. **Otros:**
-   - descripcion: Resumen breve del concepto/servicios (máx 100 caracteres)
-   - factura_exenta: true si está exenta de IVA, false si no
-   - motivo_exencion: Si está exenta, indicar el motivo (ej: "Art. 20 Ley IVA")
-
-**CLASIFICACIÓN DEL TIPO (EMITIDA/RECIBIDA) - REGLA PRINCIPAL E INVIOLABLE:**
-
-REGLA ABSOLUTA (NUNCA VIOLAR):
-- **EMITIDA**: SOLO si {{CLIENT_NAME}} es el EMISOR (quien vende/factura). El nombre del emisor DEBE coincidir con {{CLIENT_NAME}}.
-- **RECIBIDA**: Si {{CLIENT_NAME}} NO es el emisor. Si el emisor es CUALQUIER otra empresa distinta de {{CLIENT_NAME}}, SIEMPRE es RECIBIDA.
-
-DICHO DE OTRA FORMA:
-- Si el emisor se llama "Empresa X" y {{CLIENT_NAME}} NO es "Empresa X" → ES RECIBIDA. SIN EXCEPCIONES.
-- Si el emisor se llama "Empresa X" y {{CLIENT_NAME}} ES "Empresa X" → ES EMITIDA.
-- NO IMPORTA si el receptor dice "CLIENTE" o está vacío. Lo ÚNICO que importa es si {{CLIENT_NAME}} coincide con el EMISOR.
-
-PASOS OBLIGATORIOS:
-1. **Identifica al EMISOR**: El emisor es quien aparece en el membrete/logo/parte superior de la factura, con sus datos fiscales principales.
-2. **Compara EMISOR con {{CLIENT_NAME}}**:
-   - ¿El nombre del EMISOR coincide o es similar a "{{CLIENT_NAME}}"? → invoice_type = "emitida"
-   - ¿El nombre del EMISOR es DIFERENTE de "{{CLIENT_NAME}}"? → invoice_type = "recibida"
-3. **NUNCA** clasifiques como "emitida" si el emisor no coincide con {{CLIENT_NAME}}, aunque el receptor diga "CLIENTE" o esté vacío.
-
-
-**Operacion** (solo para facturas emitidas/recibidas): Clasifica según estas categorías:
-
-1. **interiores_iva_deducible**: NIF emisor español, IVA desglosado o exenta por ley española
-2. **facturas_compensaciones_agrarias**: Régimen Especial Agrario, IVA 10%
-3. **adquisiciones_intracomunitarias_bienes**: Emisor UE (NL, LU, IE, FR, DE, IT...), BIENES físicos
-4. **inversion_sujeto_pasivo**: "Reverse charge" o emisor fuera UE (CH, UK, US, NO, SE, IS)
-5. **iva_no_deducible**: Factura no a nombre de la empresa o gastos personales
-6. **adquisiciones_intracomunitarias_servicios**: Emisor UE, SERVICIOS (software, hotel, consultoría)
-7. **importaciones**: Bienes de fuera UE con DUA
-8. **suplidos**: Gastos adelantados por gestoría/asesoría
-9. **kit_digital**: Subvención Kit Digital
-10. **otro**: Solo si no encaja en ninguna categoría
+1. Datos Generales: idioma, moneda, fecha_factura (YYYY-MM-DD), numero_factura
+2. Importes: subtotal, impuestos, porcentaje_iva, total
+3. Emisor: nombre_emisor, id_emisor, direccion_emisor, codigo_postal_emisor
+4. Receptor: nombre_receptor, id_receptor, direccion_receptor, codigo_postal_receptor
+5. Otros: descripcion (máx 100 chars), factura_exenta, motivo_exencion
 
 Responde SOLO con JSON válido sin markdown:
 {
@@ -163,7 +104,7 @@ Responde SOLO con JSON válido sin markdown:
   "factura_exenta": false,
   "motivo_exencion": null,
   "logo_detected": "Nombre de la empresa del logo detectado",
-  "reasoning": "Breve explicación de la clasificación incluyendo cómo se usó el logo"
+  "reasoning": "Breve explicación en español"
 }`;
 
 // Function to find the best matching account based on invoice description
@@ -246,6 +187,8 @@ serve(async (req) => {
       throw new Error("Invoice not found");
     }
 
+    const clientNit = (invoice as any).client_nit || '';
+
     if (!invoice.client_name) {
       throw new Error("El nombre del cliente es requerido para clasificar");
     }
@@ -302,7 +245,10 @@ serve(async (req) => {
       ? 'application/pdf' 
       : 'image/jpeg';
 
-    const systemPrompt = CLASSIFICATION_PROMPT.replace(/\{\{CLIENT_NAME\}\}/g, invoice.client_name) + feedbackPromptSection;
+    const systemPrompt = CLASSIFICATION_PROMPT
+      .replace(/\{\{CLIENT_NAME\}\}/g, invoice.client_name)
+      .replace(/\{\{CLIENT_NIT\}\}/g, clientNit || 'No proporcionado')
+      + feedbackPromptSection;
 
     console.log("Sending request to Gemini for invoice:", invoiceId);
 
@@ -414,6 +360,7 @@ serve(async (req) => {
       'importaciones',
       'suplidos',
       'kit_digital',
+      'amazon',
       'no_aplica',
       'ticket',
       'otro'
@@ -431,25 +378,29 @@ serve(async (req) => {
     // POST-CLASSIFICATION VALIDATION: Ensure emitida/recibida is correct based on client_name
     if (classification.invoice_type === 'emitida' || classification.invoice_type === 'recibida') {
       const clientNameLower = (invoice.client_name || '').toLowerCase().trim();
+      const clientNitLower = (clientNit || '').toLowerCase().trim();
       const emisorLower = (classification.nombre_emisor || '').toLowerCase().trim();
       const receptorLower = (classification.nombre_receptor || '').toLowerCase().trim();
+      const idEmisorLower = (classification.id_emisor || '').toLowerCase().trim();
+      const idReceptorLower = (classification.id_receptor || '').toLowerCase().trim();
 
-      const clientMatchesEmisor = emisorLower.includes(clientNameLower) || clientNameLower.includes(emisorLower);
-      const clientMatchesReceptor = receptorLower.includes(clientNameLower) || clientNameLower.includes(receptorLower);
+      const clientMatchesEmisor = (emisorLower.includes(clientNameLower) || clientNameLower.includes(emisorLower))
+        || (clientNitLower && (idEmisorLower === clientNitLower));
+      const clientMatchesReceptor = (receptorLower.includes(clientNameLower) || clientNameLower.includes(receptorLower))
+        || (clientNitLower && (idReceptorLower === clientNitLower));
 
       if (classification.invoice_type === 'emitida' && !clientMatchesEmisor && clientMatchesReceptor) {
-        console.log(`POST-VALIDATION FIX: Changed from emitida to recibida. Client "${invoice.client_name}" matches receptor "${classification.nombre_receptor}", not emisor "${classification.nombre_emisor}"`);
+        console.log(`POST-VALIDATION FIX: Changed from emitida to recibida.`);
         classification.invoice_type = 'recibida';
-        classification.reasoning = (classification.reasoning || '') + ` [Corrección automática: el cliente "${invoice.client_name}" coincide con el receptor, no con el emisor, por lo tanto es recibida.]`;
+        classification.reasoning = (classification.reasoning || '') + ` [Corrección automática: el cliente coincide con el receptor, no con el emisor.]`;
       } else if (classification.invoice_type === 'recibida' && !clientMatchesReceptor && clientMatchesEmisor) {
-        console.log(`POST-VALIDATION FIX: Changed from recibida to emitida. Client "${invoice.client_name}" matches emisor "${classification.nombre_emisor}", not receptor "${classification.nombre_receptor}"`);
+        console.log(`POST-VALIDATION FIX: Changed from recibida to emitida.`);
         classification.invoice_type = 'emitida';
-        classification.reasoning = (classification.reasoning || '') + ` [Corrección automática: el cliente "${invoice.client_name}" coincide con el emisor, no con el receptor, por lo tanto es emitida.]`;
+        classification.reasoning = (classification.reasoning || '') + ` [Corrección automática: el cliente coincide con el emisor.]`;
       } else if (!clientMatchesEmisor && !clientMatchesReceptor) {
-        // Client doesn't match either - default to recibida (most common case: client receives invoices)
-        console.log(`POST-VALIDATION: Client "${invoice.client_name}" doesn't match emisor "${classification.nombre_emisor}" nor receptor "${classification.nombre_receptor}". Defaulting to recibida.`);
+        console.log(`POST-VALIDATION: Client doesn't match either. Defaulting to recibida.`);
         classification.invoice_type = 'recibida';
-        classification.reasoning = (classification.reasoning || '') + ` [Corrección automática: el cliente "${invoice.client_name}" no coincide con el emisor, se asume recibida.]`;
+        classification.reasoning = (classification.reasoning || '') + ` [Corrección automática: el cliente no coincide con el emisor, se asume recibida.]`;
       }
     }
 

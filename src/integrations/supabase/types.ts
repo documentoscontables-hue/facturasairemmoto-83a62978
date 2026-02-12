@@ -155,6 +155,7 @@ export type Database = {
           classification_details: Json | null
           classification_status: string
           client_name: string | null
+          client_nit: string | null
           created_at: string
           feedback_status: string | null
           file_name: string
@@ -171,6 +172,7 @@ export type Database = {
           classification_details?: Json | null
           classification_status?: string
           client_name?: string | null
+          client_nit?: string | null
           created_at?: string
           feedback_status?: string | null
           file_name: string
@@ -187,6 +189,7 @@ export type Database = {
           classification_details?: Json | null
           classification_status?: string
           client_name?: string | null
+          client_nit?: string | null
           created_at?: string
           feedback_status?: string | null
           file_name?: string

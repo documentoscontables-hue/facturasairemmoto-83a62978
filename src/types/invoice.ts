@@ -12,6 +12,7 @@ export type OperationType =
   | 'importaciones'
   | 'suplidos'
   | 'kit_digital'
+  | 'amazon'
   | 'no_aplica'
   | 'ticket'
   | 'otro';
@@ -26,6 +27,7 @@ export const OPERATION_TYPE_LABELS: Record<OperationType, string> = {
   importaciones: 'Importaciones',
   suplidos: 'Suplidos',
   kit_digital: 'Kit Digital (Subvención)',
+  amazon: 'Amazon',
   no_aplica: 'No Aplica',
   ticket: 'Ticket',
   otro: 'Otro',
