@@ -18,8 +18,7 @@ Evalúa cada documento siguiendo este orden estricto:
 
 **PASO 1 - Validación de Identidad (Filtro de Ticket):**
 Busca en el documento impreso tanto el Nombre del Cliente ({{CLIENT_NAME}}) como el NIF/CIF del Cliente ({{CLIENT_NIT}}).
-- **Regla:** Si NI el nombre NI el NIF/CIF del cliente aparecen impresos en el documento, clasifícalo inmediatamente como **Ticket** (invoice_type = "ticket", operation_type = "ticket").
-- EXCEPCIÓN: Si el documento contiene la palabra "Factura", "Proforma" o "Albarán", NO es ticket aunque no aparezcan datos del cliente.
+- **Regla ABSOLUTA:** Si NI el nombre NI el NIF/CIF del cliente aparecen impresos en el documento, clasifícalo inmediatamente como **Ticket** (invoice_type = "ticket", operation_type = "ticket"). Esta regla NO tiene excepciones: aunque el documento diga "Factura", "Proforma" o "Albarán", si no aparecen los datos del cliente, es Ticket.
 
 **PASO 2 - Documentos Provisionales:**
 Si se identifica al cliente (por nombre o NIF/CIF), verifica si el documento indica:
