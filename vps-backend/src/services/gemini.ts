@@ -160,7 +160,7 @@ export async function classifyInvoice(
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const aiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -172,7 +172,7 @@ export async function classifyInvoice(
               { inline_data: { mime_type: mimeType, data: base64Data } },
             ],
           }],
-          generationConfig: { temperature: 0.1, topP: 0.95, maxOutputTokens: 2048 },
+          generationConfig: { temperature: 0.1, topP: 0.95, maxOutputTokens: 4096 },
         }),
       }
     );

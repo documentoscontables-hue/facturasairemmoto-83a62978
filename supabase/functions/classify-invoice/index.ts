@@ -274,7 +274,7 @@ serve(async (req) => {
     let aiData: any = null;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       const aiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiApiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -288,7 +288,7 @@ serve(async (req) => {
                 ],
               },
             ],
-            generationConfig: { temperature: 0.1, topP: 0.95, maxOutputTokens: 2048 },
+            generationConfig: { temperature: 0.1, topP: 0.95, maxOutputTokens: 4096 },
           }),
         }
       );
