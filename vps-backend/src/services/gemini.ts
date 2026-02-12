@@ -19,10 +19,26 @@ Si se identifica al cliente (por nombre o NIF/CIF), verifica si el documento ind
 - "Albarán" / "Delivery Note" / "Packing Slip" → invoice_type = "albaran", operation_type = "no_aplica"
 - "Proforma" / "Factura Proforma" / "Pro forma Invoice" → invoice_type = "proforma", operation_type = "no_aplica"
 
-**PASO 3 - Validación de Factura:**
-Si no es ticket, ni albarán, ni proforma:
-- Si NO aparece el término "Factura" (o equivalente: "Invoice", "Facture", "Rechnung", "Fattura") → invoice_type = "no_es_factura", operation_type = "no_aplica"
-- Si SÍ aparece: Clasificar como Factura Emitida o Factura Recibida según el rol del cliente.
+**PASO 3 - Filtro de Documentos No-Factura:**
+Si no es ticket, ni albarán, ni proforma, ANTES de verificar si dice "Factura", comprueba si el documento es realmente uno de estos tipos de documento que NO son facturas (aunque puedan contener la palabra "factura" en campos como "dirección de facturación", "facturar a", etc.):
+- **Pedido** / "Orden de compra" / "Purchase Order" / "Order" / "Orden" / "Confirmación de pedido" / "Order Confirmation" / "Bestellung"
+- **Presupuesto** / "Quotation" / "Quote" / "Estimate" / "Angebot" / "Devis"
+- **Nota de crédito** / "Credit Note" / "Abono" / "Gutschrift" / "Avoir"
+- **Nota de débito** / "Debit Note" / "Lastschrift"
+- **Recibo** / "Receipt" / "Quittung" / "Reçu" (sin estructura fiscal de factura)
+- **Contrato** / "Contract" / "Agreement" / "Vertrag"
+- **Certificado** / "Certificate"
+- **Extracto** / "Statement" / "Kontoauszug"
+- **Remesa** / "Remittance"
+- **Justificante de pago** / "Payment confirmation" / "Proof of payment"
+- **Carta** / "Letter" / "Comunicación"
+
+Si el título principal o encabezado del documento coincide con alguno de estos tipos → invoice_type = "no_es_factura", operation_type = "no_aplica". La palabra "factura" en campos secundarios (dirección de facturación, datos de facturación, etc.) NO convierte al documento en factura.
+
+**PASO 4 - Validación de Factura:**
+Si no fue filtrado en los pasos anteriores:
+- Si NO aparece el término "Factura" (o equivalente: "Invoice", "Facture", "Rechnung", "Fattura") como TÍTULO o ENCABEZADO PRINCIPAL del documento → invoice_type = "no_es_factura", operation_type = "no_aplica"
+- Si SÍ aparece como título principal: Clasificar como Factura Emitida o Factura Recibida según el rol del cliente.
 
 Si es PROFORMA, ALBARÁN, TICKET o NO ES FACTURA, responde SOLO con:
 {
