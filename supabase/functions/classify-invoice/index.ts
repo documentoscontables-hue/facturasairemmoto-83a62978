@@ -60,11 +60,12 @@ Si detectas estas frases, la categoría es inmediata:
 Identifica el país del emisor (proveedor):
 
 - **España:** Gasto afecto a actividad con IVA → **interiores_iva_deducible**. Gastos personales/multas/no deducibles → **iva_no_deducible**.
-- **Unión Europea (27 países miembros actuales):** Bienes físicos/logística → **adquisiciones_intracomunitarias_bienes**. Software/SaaS/Servicios → **adquisiciones_intracomunitarias_servicios**.
+- **Unión Europea (27 países miembros actuales):** Se verificará el NIF del emisor en VIES automáticamente. Si está registrado: Bienes físicos/logística → **adquisiciones_intracomunitarias_bienes**. Software/SaaS/Servicios → **adquisiciones_intracomunitarias_servicios**. Si NO está registrado en VIES → **no_registrado_vies**.
 - **Extracomunitario (fuera UE: UK, Suiza, USA, Colombia, México, etc.):** Clasificar siempre como **importaciones** (salvo que mencione ISP explícitamente).
 
 **C. Lógica Geográfica para FACTURAS EMITIDAS:**
-Si no aplica ninguna regla de texto especial (ISP, Suplidos, etc.), clasificar como **no_aplica**.
+Identifica el país del receptor. Si el receptor es de la UE, se verificará su NIF en VIES. Si está registrado → operación intracomunitaria con VIES verificado. Si NO está registrado → **no_registrado_vies**.
+Si no aplica ninguna regla de texto especial (ISP, Suplidos, etc.) y es España → **no_aplica**.
 
 **REGLAS DE CONTROL INTERNO:**
 - Países UE: Solo los 27 miembros actuales. UK, Suiza, Noruega, Colombia son Extracomunitarios.
@@ -361,6 +362,7 @@ serve(async (req) => {
       'kit_digital',
       'amazon',
       'no_aplica',
+      'no_registrado_vies',
       'ticket',
       'otro'
     ];
@@ -400,6 +402,87 @@ serve(async (req) => {
         console.log(`POST-VALIDATION: Client doesn't match either. Defaulting to recibida.`);
         classification.invoice_type = 'recibida';
         classification.reasoning = (classification.reasoning || '') + ` [Corrección automática: el cliente no coincide con el emisor, se asume recibida.]`;
+      }
+    }
+
+    // VIES VALIDATION for EU intra-community operations
+    const EU_COUNTRY_CODES = [
+      "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR",
+      "DE", "GR", "EL", "HU", "IE", "IT", "LV", "LT", "LU", "MT",
+      "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
+    ];
+
+    const isIntracomunitaria = [
+      'adquisiciones_intracomunitarias_bienes',
+      'adquisiciones_intracomunitarias_servicios',
+    ].includes(classification.operation_type);
+
+    if (isIntracomunitaria || (classification.invoice_type === 'emitida' || classification.invoice_type === 'recibida')) {
+      // Determine which NIF to validate in VIES
+      let nifToValidate: string | null = null;
+
+      if (classification.invoice_type === 'recibida' && isIntracomunitaria) {
+        // Validate the emisor (supplier) NIF for received invoices
+        nifToValidate = classification.id_emisor || null;
+      } else if (classification.invoice_type === 'emitida') {
+        // Validate the receptor NIF for emitted invoices (if EU)
+        nifToValidate = classification.id_receptor || null;
+      }
+
+      if (nifToValidate) {
+        // Extract country code from NIF (first 2 chars)
+        const nifClean = nifToValidate.replace(/[\s\-\.]/g, '').toUpperCase();
+        let cc = nifClean.substring(0, 2);
+        const vatNum = nifClean.substring(2);
+
+        // Check if the country code is EU
+        if (cc === 'GR') cc = 'EL';
+        const isEuNif = EU_COUNTRY_CODES.includes(cc) && cc !== 'ES'; // Skip Spain (domestic)
+
+        if (isEuNif && vatNum.length > 0) {
+          try {
+            console.log(`VIES validation for ${cc}${vatNum}...`);
+            const soapEnvelope = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:ec.europa.eu:taxud:vies:services:checkVat:types">
+  <soapenv:Body>
+    <urn:checkVat>
+      <urn:countryCode>${cc}</urn:countryCode>
+      <urn:vatNumber>${vatNum}</urn:vatNumber>
+    </urn:checkVat>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+            const viesResp = await fetch(
+              "https://ec.europa.eu/taxation_customs/vies/services/checkVatService",
+              {
+                method: "POST",
+                headers: { "Content-Type": "text/xml;charset=UTF-8", SOAPAction: "" },
+                body: soapEnvelope,
+              }
+            );
+
+            if (viesResp.ok) {
+              const viesText = await viesResp.text();
+              const validMatch = viesText.match(/<ns2:valid>(true|false)<\/ns2:valid>/);
+              const isValid = validMatch ? validMatch[1] === "true" : false;
+
+              if (!isValid) {
+                console.log(`VIES: NIF ${cc}${vatNum} NOT registered. Setting operation to no_registrado_vies.`);
+                classification.operation_type = 'no_registrado_vies';
+                classification.reasoning = (classification.reasoning || '') + ` [VIES: NIF ${cc}${vatNum} no registrado en VIES.]`;
+              } else {
+                console.log(`VIES: NIF ${cc}${vatNum} is registered.`);
+                classification.reasoning = (classification.reasoning || '') + ` [VIES: NIF ${cc}${vatNum} verificado y registrado en VIES.]`;
+              }
+            } else {
+              console.error("VIES service unavailable:", viesResp.status);
+              classification.reasoning = (classification.reasoning || '') + ` [VIES: Servicio no disponible temporalmente.]`;
+            }
+          } catch (viesError) {
+            console.error("VIES validation error:", viesError);
+            classification.reasoning = (classification.reasoning || '') + ` [VIES: Error al consultar el servicio.]`;
+          }
+        }
       }
     }
 

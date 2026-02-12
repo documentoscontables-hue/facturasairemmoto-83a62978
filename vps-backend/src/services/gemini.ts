@@ -49,11 +49,12 @@ Si es PROFORMA, ALBARÁN, TICKET o NO ES FACTURA, responde SOLO con:
 
 **B. Lógica Geográfica para FACTURAS RECIBIDAS:**
 - **España:** Gasto afecto a actividad con IVA → **interiores_iva_deducible**. Gastos personales/no deducibles → **iva_no_deducible**.
-- **Unión Europea (27 países):** Bienes físicos → **adquisiciones_intracomunitarias_bienes**. Servicios → **adquisiciones_intracomunitarias_servicios**.
+- **Unión Europea (27 países):** Se verificará el NIF del emisor en VIES. Si registrado: Bienes físicos → **adquisiciones_intracomunitarias_bienes**. Servicios → **adquisiciones_intracomunitarias_servicios**. Si NO registrado → **no_registrado_vies**.
 - **Extracomunitario (UK, Suiza, USA, Colombia, México, etc.):** Siempre **importaciones** (salvo ISP).
 
 **C. Lógica Geográfica para FACTURAS EMITIDAS:**
-Si no aplica regla de texto especial → **no_aplica**.
+Si receptor es UE, verificar NIF en VIES. Si NO registrado → **no_registrado_vies**.
+Si no aplica regla de texto especial y es España → **no_aplica**.
 
 **REGLAS DE CONTROL:**
 - Países UE: Solo 27 miembros actuales. UK, Suiza, Noruega son Extracomunitarios.
