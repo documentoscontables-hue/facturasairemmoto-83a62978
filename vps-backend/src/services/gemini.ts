@@ -227,6 +227,31 @@ export async function classifyInvoice(
     }
   }
 
+  // EXTRACOMUNITARIO POST-VALIDATION: force importaciones when emisor is clearly non-EU
+  const EXTRACOM_KEYWORDS = [
+    'colombia', 'méxico', 'mexico', 'usa', 'estados unidos', 'united states',
+    'uk', 'reino unido', 'united kingdom', 'gran bretaña', 'england',
+    'suiza', 'switzerland', 'noruega', 'norway', 'china', 'japón', 'japan',
+    'canadá', 'canada', 'brasil', 'brazil', 'argentina', 'chile', 'perú', 'peru',
+    'ecuador', 'venezuela', 'india', 'australia', 'nueva zelanda', 'new zealand',
+    'turquía', 'turkey', 'rusia', 'russia', 'marruecos', 'morocco', 'israel',
+    'corea', 'korea', 'tailandia', 'thailand', 'singapur', 'singapore',
+    'emiratos', 'dubai', 'qatar', 'arabia', 'panamá', 'panama',
+    'costa rica', 'guatemala', 'honduras', 'bolivia', 'paraguay', 'uruguay',
+    'república dominicana', 'dominican republic', 'cuba', 'puerto rico',
+  ];
+
+  if (classification.invoice_type === 'recibida') {
+    const emisorAddr = (classification.direccion_emisor || '').toLowerCase();
+    const reasoning = (classification.reasoning || '').toLowerCase();
+    const isExtracom = EXTRACOM_KEYWORDS.some(kw => emisorAddr.includes(kw) || reasoning.includes(kw));
+
+    if (isExtracom && classification.operation_type !== 'importaciones' && classification.operation_type !== 'inversion_sujeto_pasivo') {
+      classification.operation_type = 'importaciones';
+      classification.reasoning = (classification.reasoning || '') + ' [Corrección geográfica: emisor extracomunitario, operación forzada a importaciones.]';
+    }
+  }
+
   // Account reconciliation
   let assignedAccount: string | null = null;
   if (hasAccountBook) {

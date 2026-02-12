@@ -405,12 +405,41 @@ serve(async (req) => {
       }
     }
 
-    // VIES VALIDATION for EU intra-community operations
+    // GEOGRAPHIC POST-VALIDATION & VIES VALIDATION
     const EU_COUNTRY_CODES = [
       "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR",
       "DE", "GR", "EL", "HU", "IE", "IT", "LV", "LT", "LU", "MT",
       "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
     ];
+
+    // EXTRACOMUNITARIO CHECK: If the address/country of the counterpart clearly indicates
+    // a non-EU country, force operation_type to "importaciones" (recibida) or "no_aplica" (emitida)
+    const EXTRACOM_KEYWORDS = [
+      'colombia', 'méxico', 'mexico', 'usa', 'estados unidos', 'united states',
+      'uk', 'reino unido', 'united kingdom', 'gran bretaña', 'england',
+      'suiza', 'switzerland', 'noruega', 'norway', 'china', 'japón', 'japan',
+      'canadá', 'canada', 'brasil', 'brazil', 'argentina', 'chile', 'perú', 'peru',
+      'ecuador', 'venezuela', 'india', 'australia', 'nueva zelanda', 'new zealand',
+      'turquía', 'turkey', 'rusia', 'russia', 'marruecos', 'morocco', 'israel',
+      'corea', 'korea', 'tailandia', 'thailand', 'singapur', 'singapore',
+      'emiratos', 'dubai', 'qatar', 'arabia', 'panamá', 'panama',
+      'costa rica', 'guatemala', 'honduras', 'bolivia', 'paraguay', 'uruguay',
+      'república dominicana', 'dominican republic', 'cuba', 'puerto rico',
+    ];
+
+    if (classification.invoice_type === 'recibida') {
+      const emisorAddress = (classification.direccion_emisor || '').toLowerCase();
+      const emisorReasoning = (classification.reasoning || '').toLowerCase();
+      const isExtracom = EXTRACOM_KEYWORDS.some(kw => 
+        emisorAddress.includes(kw) || emisorReasoning.includes(kw)
+      );
+      
+      if (isExtracom && classification.operation_type !== 'importaciones' && classification.operation_type !== 'inversion_sujeto_pasivo') {
+        console.log(`GEOGRAPHIC FIX: Emisor is extracomunitario. Forcing operation_type to importaciones.`);
+        classification.operation_type = 'importaciones';
+        classification.reasoning = (classification.reasoning || '') + ` [Corrección geográfica: el emisor es extracomunitario, operación forzada a importaciones.]`;
+      }
+    }
 
     const isIntracomunitaria = [
       'adquisiciones_intracomunitarias_bienes',
@@ -422,10 +451,8 @@ serve(async (req) => {
       let nifToValidate: string | null = null;
 
       if (classification.invoice_type === 'recibida' && isIntracomunitaria) {
-        // Validate the emisor (supplier) NIF for received invoices
         nifToValidate = classification.id_emisor || null;
       } else if (classification.invoice_type === 'emitida') {
-        // Validate the receptor NIF for emitted invoices (if EU)
         nifToValidate = classification.id_receptor || null;
       }
 
