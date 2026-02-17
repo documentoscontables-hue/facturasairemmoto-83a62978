@@ -1,16 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { apiFetch } from '@/lib/api';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
-
-// Sanitize file names for Supabase Storage (remove accents and special chars)
-function sanitizeFileName(name: string): string {
-  return name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // Remove accents
-    .replace(/[^a-zA-Z0-9._-]/g, '_'); // Replace special chars with underscore
-}
 
 export interface AccountBook {
   id: string;
@@ -35,38 +27,23 @@ export function useAccountBook() {
   const queryClient = useQueryClient();
   const [isParsingBook, setIsParsingBook] = useState(false);
 
-  // Fetch user's account book
+  // Fetch user's account books
   const bookQuery = useQuery({
     queryKey: ['account-book', user?.id],
     queryFn: async () => {
       if (!user) return null;
-      const { data, error } = await supabase
-        .from('account_books')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (error) throw error;
-      return data as AccountBook | null;
+      const data = await apiFetch<AccountBook[]>('/api/account-books');
+      return data.length > 0 ? data[0] : null;
     },
     enabled: !!user,
   });
 
-  // Fetch accounts from the book
+  // Fetch accounts
   const accountsQuery = useQuery({
     queryKey: ['accounts', user?.id],
     queryFn: async () => {
       if (!user) return [];
-      const { data, error } = await supabase
-        .from('accounts')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('account_code', { ascending: true });
-
-      if (error) throw error;
-      return data as Account[];
+      return apiFetch<Account[]>('/api/account-books/accounts');
     },
     enabled: !!user,
   });
@@ -77,50 +54,25 @@ export function useAccountBook() {
       if (!user) throw new Error('Not authenticated');
 
       const fileExt = file.name.split('.').pop()?.toLowerCase();
-      const isPdf = fileExt === 'pdf';
-      const isExcel = ['xlsx', 'xls'].includes(fileExt || '');
-
-      if (!isPdf && !isExcel) {
+      if (!['pdf', 'xlsx', 'xls'].includes(fileExt || '')) {
         throw new Error('Formato no soportado. Use PDF o Excel.');
       }
 
       setIsParsingBook(true);
 
-      const sanitizedName = sanitizeFileName(file.name);
-      const filePath = `${user.id}/${Date.now()}-${sanitizedName}`;
-      
-      // Upload file to storage
-      const { error: uploadError } = await supabase.storage
-        .from('account-books')
-        .upload(filePath, file);
+      // Upload the file
+      const formData = new FormData();
+      formData.append('file', file);
 
-      if (uploadError) throw uploadError;
-
-      // Delete existing account books for this user
-      await supabase
-        .from('account_books')
-        .delete()
-        .eq('user_id', user.id);
-
-      // Create account book record
-      const { data: bookData, error: insertError } = await supabase
-        .from('account_books')
-        .insert({
-          user_id: user.id,
-          file_name: file.name,
-          file_path: filePath,
-        })
-        .select()
-        .single();
-
-      if (insertError) throw insertError;
-
-      // Call edge function to parse the book
-      const { data: parseResult, error: parseError } = await supabase.functions.invoke('parse-account-book', {
-        body: { bookId: bookData.id },
+      const bookData = await apiFetch<AccountBook>('/api/account-books/upload', {
+        method: 'POST',
+        body: formData,
       });
 
-      if (parseError) throw parseError;
+      // Parse the book
+      const parseResult = await apiFetch<{ success: boolean; accounts_count: number }>(`/api/account-books/${bookData.id}/parse`, {
+        method: 'POST',
+      });
 
       return { book: bookData, parseResult };
     },
@@ -140,19 +92,7 @@ export function useAccountBook() {
   const deleteMutation = useMutation({
     mutationFn: async () => {
       if (!user || !bookQuery.data) throw new Error('No book to delete');
-
-      // Delete from storage
-      await supabase.storage
-        .from('account-books')
-        .remove([bookQuery.data.file_path]);
-
-      // Delete book record (accounts will be cascade deleted)
-      const { error } = await supabase
-        .from('account_books')
-        .delete()
-        .eq('id', bookQuery.data.id);
-
-      if (error) throw error;
+      await apiFetch(`/api/account-books/${bookQuery.data.id}`, { method: 'DELETE' });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['account-book'] });

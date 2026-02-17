@@ -1,62 +1,71 @@
-import { useEffect, useState, createContext, useContext, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
+import { useEffect, useState, createContext, useContext, ReactNode, useCallback } from 'react';
+import { apiFetch, getToken, setToken, removeToken, getSavedUser, saveUser } from '@/lib/api';
+
+interface VpsUser {
+  id: string;
+  email: string;
+  role: string;
+  team_id: string | null;
+}
 
 interface AuthContextType {
-  user: User | null;
-  session: Session | null;
+  user: VpsUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<VpsUser | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // On mount, check for existing token
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
-      }
-    );
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    const token = getToken();
+    if (!token) {
       setLoading(false);
-    });
+      return;
+    }
 
-    return () => subscription.unsubscribe();
+    // Try to validate token by calling /me
+    apiFetch<VpsUser>('/api/auth/me')
+      .then((userData) => {
+        saveUser(userData);
+        setUser(userData);
+      })
+      .catch(() => {
+        // Token expired or invalid
+        removeToken();
+        setUser(null);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
-  const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error as Error | null };
-  };
+  const signIn = useCallback(async (email: string, password: string) => {
+    try {
+      const data = await apiFetch<{ token: string; user: VpsUser }>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
 
-  const signUp = async (email: string, password: string) => {
-    const redirectUrl = `${window.location.origin}/`;
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: redirectUrl },
-    });
-    return { error: error as Error | null };
-  };
+      setToken(data.token);
+      saveUser(data.user);
+      setUser(data.user);
+      return { error: null };
+    } catch (err) {
+      return { error: err as Error };
+    }
+  }, []);
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
-  };
+  const signOut = useCallback(async () => {
+    removeToken();
+    setUser(null);
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );
