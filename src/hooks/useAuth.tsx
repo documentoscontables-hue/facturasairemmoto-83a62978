@@ -1,15 +1,9 @@
 import { useEffect, useState, createContext, useContext, ReactNode, useCallback } from 'react';
-import { apiFetch, getToken, setToken, removeToken, getSavedUser, saveUser } from '@/lib/api';
-
-interface VpsUser {
-  id: string;
-  email: string;
-  role: string;
-  team_id: string | null;
-}
+import { supabase } from '@/integrations/supabase/client';
+import type { User } from '@supabase/supabase-js';
 
 interface AuthContextType {
-  user: VpsUser | null;
+  user: User | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
@@ -18,41 +12,27 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<VpsUser | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // On mount, check for existing token
   useEffect(() => {
-    const token = getToken();
-    if (!token) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
       setLoading(false);
-      return;
-    }
+    });
 
-    // Try to validate token by calling /me
-    apiFetch<VpsUser>('/api/auth/me')
-      .then((userData) => {
-        saveUser(userData);
-        setUser(userData);
-      })
-      .catch(() => {
-        // Token expired or invalid
-        removeToken();
-        setUser(null);
-      })
-      .finally(() => setLoading(false));
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
     try {
-      const data = await apiFetch<{ token: string; user: VpsUser }>('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
-      });
-
-      setToken(data.token);
-      saveUser(data.user);
-      setUser(data.user);
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) return { error: new Error(error.message) };
       return { error: null };
     } catch (err) {
       return { error: err as Error };
@@ -60,8 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    removeToken();
-    setUser(null);
+    await supabase.auth.signOut();
   }, []);
 
   return (

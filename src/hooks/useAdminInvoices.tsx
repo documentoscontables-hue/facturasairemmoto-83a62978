@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { apiFetch } from '@/lib/api';
+import { supabase } from '@/integrations/supabase/client';
 import { useAdmin } from './useAdmin';
 import { Invoice, InvoiceType, OperationType, ClassificationStatus } from '@/types/invoice';
 
@@ -17,9 +17,13 @@ export function useAdminInvoices(userId?: string) {
     queryFn: async () => {
       if (!userId) return [] as UserInvoiceData[];
 
-      const invoicesData = await apiFetch<any[]>(`/api/invoices/admin/${userId}`);
+      const { data, error } = await supabase.rpc('get_user_invoices_admin', {
+        target_user_id: userId,
+      });
 
-      const invoices = invoicesData.map(item => ({
+      if (error) throw error;
+
+      const invoices = (data || []).map(item => ({
         id: item.id,
         user_id: item.user_id,
         file_name: item.file_name,
@@ -36,7 +40,6 @@ export function useAdminInvoices(userId?: string) {
         updated_at: item.updated_at,
       })) as Invoice[];
 
-      // We don't have email from this endpoint, use userId as fallback
       return [{
         user_id: userId,
         email: invoices[0]?.user_id || userId,
