@@ -8,7 +8,6 @@ import authRoutes from './routes/auth';
 import invoiceRoutes from './routes/invoices';
 import accountRoutes from './routes/accounts';
 import adminRoutes from './routes/admin';
-import viesRoutes from './routes/vies';
 import { authMiddleware } from './middleware/auth';
 
 const app = express();
@@ -26,7 +25,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/account-books', accountRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/vies', viesRoutes);
 
 // Start server
 app.listen(PORT, () => {

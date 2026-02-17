@@ -33,11 +33,10 @@ router.post('/login', async (req, res) => {
     const profileResult = await db.query('SELECT team_id FROM profiles WHERE user_id = $1', [user.id]);
     const teamId = profileResult.rows[0]?.team_id || null;
 
-    const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
     const token = jwt.sign(
       { userId: user.id, email: user.email },
-      process.env.JWT_SECRET!,
-      { expiresIn: expiresIn as any }
+      process.env.JWT_SECRET || 'secret',
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
 
     return res.json({
@@ -84,11 +83,10 @@ router.post('/register', async (req, res) => {
     // Assign default role
     await db.query("INSERT INTO user_roles (user_id, role) VALUES ($1, 'user')", [user.id]);
 
-    const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
     const token = jwt.sign(
       { userId: user.id, email: user.email },
-      process.env.JWT_SECRET!,
-      { expiresIn: expiresIn as any }
+      process.env.JWT_SECRET || 'secret',
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
 
     return res.json({

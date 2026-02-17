@@ -32,13 +32,26 @@ export function Dashboard() {
   const { user, signOut } = useAuth();
   const { isAdmin, isCoordinator, isCheckingRole } = useAdmin();
   const { 
-    invoices, isLoading, uploadInvoices, isUploading,
-    updateInvoice, classifyAllInvoices, isClassifyingAll,
-    classificationProgress, submitFeedback, isSubmittingFeedback,
-    deleteInvoice, deleteAllInvoices, isDeletingAll,
+    invoices, 
+    isLoading, 
+    uploadInvoices, 
+    isUploading,
+    updateInvoice,
+    classifyAllInvoices,
+    isClassifyingAll,
+    classificationProgress,
+    submitFeedback,
+    isSubmittingFeedback,
+    deleteInvoice,
+    deleteAllInvoices,
+    isDeletingAll,
   } = useInvoices();
 
-  const [filters, setFilters] = useState<Filters>({ invoiceType: 'all', operationType: 'all', status: 'all' });
+  const [filters, setFilters] = useState<Filters>({
+    invoiceType: 'all',
+    operationType: 'all',
+    status: 'all',
+  });
   const [isDownloading, setIsDownloading] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showCoordinatorPanel, setShowCoordinatorPanel] = useState(false);
@@ -65,32 +78,54 @@ export function Dashboard() {
     pending: invoices.filter(i => i.classification_status === 'pending').length,
   }), [invoices]);
 
-  const pendingInvoices = useMemo(() => invoices.filter(i => i.classification_status === 'pending'), [invoices]);
+  const pendingInvoices = useMemo(() => 
+    invoices.filter(i => i.classification_status === 'pending'),
+    [invoices]
+  );
 
-  if (showAdminPanel && isAdmin) return <AdminPanel onBack={() => setShowAdminPanel(false)} />;
-  if (showCoordinatorPanel && isCoordinator) return <CoordinatorPanel onBack={() => setShowCoordinatorPanel(false)} />;
+  if (showAdminPanel && isAdmin) {
+    return <AdminPanel onBack={() => setShowAdminPanel(false)} />;
+  }
+
+  if (showCoordinatorPanel && isCoordinator) {
+    return <CoordinatorPanel onBack={() => setShowCoordinatorPanel(false)} />;
+  }
 
   const handleClassifyAll = async () => {
-    if (pendingInvoices.length === 0) { toast.error('No hay facturas pendientes para clasificar'); return; }
-    await classifyAllInvoices({ invoiceIds: pendingInvoices.map(i => i.id), invoices: pendingInvoices });
+    if (pendingInvoices.length === 0) {
+      toast.error('No hay facturas pendientes para clasificar');
+      return;
+    }
+    await classifyAllInvoices({ 
+      invoiceIds: pendingInvoices.map(i => i.id),
+      invoices: pendingInvoices
+    });
   };
 
   const handleDownloadZip = async () => {
-    if (filteredInvoices.length === 0) { toast.error('No hay facturas para descargar'); return; }
+    if (filteredInvoices.length === 0) {
+      toast.error('No hay facturas para descargar');
+      return;
+    }
+
     setIsDownloading(true);
     try {
       const zip = new JSZip();
+
       for (const invoice of filteredInvoices) {
-        try {
-          const { data } = await supabase.storage.from('invoices').createSignedUrl(invoice.file_path, 300);
-          if (!data?.signedUrl) continue;
-          const response = await fetch(data.signedUrl);
-          if (!response.ok) continue;
-          const blob = await response.blob();
-          const folder = `${invoice.invoice_type || 'sin_clasificar'}/${invoice.operation_type || 'sin_operacion'}`;
-          zip.file(`${folder}/${invoice.file_name}`, blob);
-        } catch { console.error('Error downloading:', invoice.file_name); }
+        const { data, error } = await supabase.storage
+          .from('invoices')
+          .download(invoice.file_path);
+
+        if (error) {
+          console.error('Error downloading:', invoice.file_name);
+          continue;
+        }
+
+        const folder = `${invoice.invoice_type || 'sin_clasificar'}/${invoice.operation_type || 'sin_operacion'}`;
+        zip.file(`${folder}/${invoice.file_name}`, data);
       }
+
       const blob = await zip.generateAsync({ type: 'blob' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -99,8 +134,11 @@ export function Dashboard() {
       a.click();
       URL.revokeObjectURL(url);
       toast.success('Descarga completada');
-    } catch { toast.error('Error al generar el ZIP'); }
-    finally { setIsDownloading(false); }
+    } catch (error) {
+      toast.error('Error al generar el ZIP');
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   return (
@@ -114,29 +152,40 @@ export function Dashboard() {
           <div className="flex items-center gap-2">
             {isCoordinator && (
               <Button variant="outline" onClick={() => setShowCoordinatorPanel(true)}>
-                <Users className="w-4 h-4 mr-2" />Mi Equipo
+                <Users className="w-4 h-4 mr-2" />
+                Mi Equipo
               </Button>
             )}
             {isAdmin && (
               <Button variant="outline" onClick={() => setShowAdminPanel(true)}>
-                <Shield className="w-4 h-4 mr-2" />Admin
+                <Shield className="w-4 h-4 mr-2" />
+                Admin
               </Button>
             )}
             <Button variant="ghost" onClick={signOut}>
-              <LogOut className="w-4 h-4 mr-2" />Salir
+              <LogOut className="w-4 h-4 mr-2" />
+              Salir
             </Button>
           </div>
         </div>
       </header>
 
       <main className="container mx-auto px-4 py-8 space-y-8">
+        {/* Main Tabs */}
         <Tabs value={mainTab} onValueChange={(v) => setMainTab(v as 'clasificacion' | 'vies')}>
           <TabsList className="mb-6">
-            <TabsTrigger value="clasificacion" className="gap-2"><FileCheck className="w-4 h-4" />Clasificación Facturas</TabsTrigger>
-            <TabsTrigger value="vies" className="gap-2"><ShieldCheck className="w-4 h-4" />Revisión VIES</TabsTrigger>
+            <TabsTrigger value="clasificacion" className="gap-2">
+              <FileCheck className="w-4 h-4" />
+              Clasificación Facturas
+            </TabsTrigger>
+            <TabsTrigger value="vies" className="gap-2">
+              <ShieldCheck className="w-4 h-4" />
+              Revisión VIES
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="clasificacion" className="space-y-8">
+            {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
               {[
                 { label: 'Total', value: stats.total, color: 'bg-primary/10 text-primary' },
@@ -162,7 +211,9 @@ export function Dashboard() {
                 <Card className="glass-card">
                   <CardHeader>
                     <CardTitle className="text-lg">Subir facturas</CardTitle>
-                    <CardDescription>Sube tus facturas y se clasificarán automáticamente con IA</CardDescription>
+                    <CardDescription>
+                      Sube tus facturas y se clasificarán automáticamente con IA
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <InvoiceUploader onUpload={uploadInvoices} isUploading={isUploading} />
@@ -177,54 +228,90 @@ export function Dashboard() {
                     <InvoiceFilters filters={filters} onChange={setFilters} />
                     <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'cards' | 'table')}>
                       <TabsList className="h-9">
-                        <TabsTrigger value="cards" className="px-3"><LayoutGrid className="w-4 h-4" /></TabsTrigger>
-                        <TabsTrigger value="table" className="px-3"><Table className="w-4 h-4" /></TabsTrigger>
+                        <TabsTrigger value="cards" className="px-3">
+                          <LayoutGrid className="w-4 h-4" />
+                        </TabsTrigger>
+                        <TabsTrigger value="table" className="px-3">
+                          <Table className="w-4 h-4" />
+                        </TabsTrigger>
                       </TabsList>
                     </Tabs>
                   </div>
                   <div className="flex gap-2">
                     {stats.pending > 0 && !isClassifyingAll && (
-                      <Button onClick={handleClassifyAll} disabled={isClassifyingAll} className="gradient-primary">
-                        <Sparkles className="w-4 h-4 mr-2" />Clasificar todas ({stats.pending})
+                      <Button 
+                        onClick={handleClassifyAll}
+                        disabled={isClassifyingAll}
+                        className="gradient-primary"
+                      >
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        Clasificar todas ({stats.pending})
                       </Button>
                     )}
                     {filteredInvoices.length > 0 && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button variant="destructive" disabled={isDeletingAll}>
-                            {isDeletingAll ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                            {isDeletingAll ? (
+                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            ) : (
+                              <Trash2 className="w-4 h-4 mr-2" />
+                            )}
                             Eliminar todas ({filteredInvoices.length})
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
                             <AlertDialogTitle>¿Eliminar {filteredInvoices.length} factura(s)?</AlertDialogTitle>
-                            <AlertDialogDescription>Esta acción no se puede deshacer.</AlertDialogDescription>
+                            <AlertDialogDescription>
+                              Esta acción no se puede deshacer. Se eliminarán permanentemente las {filteredInvoices.length} factura(s) {filters.invoiceType !== 'all' || filters.operationType !== 'all' || filters.status !== 'all' ? 'filtradas' : ''} y sus archivos.
+                            </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => deleteAllInvoices(filteredInvoices.map(i => i.id))}>Eliminar todas</AlertDialogAction>
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              onClick={() => deleteAllInvoices(filteredInvoices.map(i => i.id))}
+                            >
+                              Eliminar todas
+                            </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
                     )}
-                    <Button variant="outline" onClick={handleDownloadZip} disabled={isDownloading || filteredInvoices.length === 0}>
-                      {isDownloading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}
+                    <Button 
+                      variant="outline" 
+                      onClick={handleDownloadZip}
+                      disabled={isDownloading || filteredInvoices.length === 0}
+                    >
+                      {isDownloading ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : (
+                        <Download className="w-4 h-4 mr-2" />
+                      )}
                       Descargar ZIP
                     </Button>
                   </div>
                 </div>
 
-                {classificationProgress && <ClassificationProgress progress={classificationProgress} />}
+                {classificationProgress && (
+                  <ClassificationProgress progress={classificationProgress} />
+                )}
 
                 {isLoading ? (
-                  <div className="flex items-center justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                  </div>
                 ) : filteredInvoices.length === 0 ? (
                   <Card className="glass-card">
                     <CardContent className="flex flex-col items-center justify-center py-12 text-center">
                       <FolderOpen className="w-12 h-12 text-muted-foreground mb-4" />
                       <h3 className="font-medium text-lg">No hay facturas</h3>
-                      <p className="text-muted-foreground">{invoices.length === 0 ? 'Sube tu primera factura para empezar' : 'No se encontraron facturas con los filtros seleccionados'}</p>
+                      <p className="text-muted-foreground">
+                        {invoices.length === 0 
+                          ? 'Sube tu primera factura para empezar'
+                          : 'No se encontraron facturas con los filtros seleccionados'}
+                      </p>
                     </CardContent>
                   </Card>
                 ) : viewMode === 'cards' ? (
@@ -235,21 +322,33 @@ export function Dashboard() {
                         invoice={invoice}
                         onUpdate={(id, type, op) => updateInvoice({ id, invoice_type: type, operation_type: op })}
                         onDelete={deleteInvoice}
-                        onFeedback={(invoiceId, isCorrect, correctedType, correctedOperation) =>
-                          submitFeedback({ invoiceId, isCorrect, originalType: invoice.invoice_type, originalOperation: invoice.operation_type, correctedType, correctedOperation })
+                        onFeedback={(invoiceId, isCorrect, correctedType, correctedOperation) => 
+                          submitFeedback({
+                            invoiceId,
+                            isCorrect,
+                            originalType: invoice.invoice_type,
+                            originalOperation: invoice.operation_type,
+                            correctedType,
+                            correctedOperation,
+                          })
                         }
                         isSubmittingFeedback={isSubmittingFeedback}
                       />
                     ))}
                   </div>
                 ) : (
-                  <InvoiceTable invoices={filteredInvoices} onDelete={deleteInvoice} />
+                  <InvoiceTable 
+                    invoices={filteredInvoices} 
+                    onDelete={deleteInvoice}
+                  />
                 )}
               </div>
             </div>
           </TabsContent>
 
-          <TabsContent value="vies"><ViesValidator /></TabsContent>
+          <TabsContent value="vies">
+            <ViesValidator />
+          </TabsContent>
         </Tabs>
       </main>
     </div>

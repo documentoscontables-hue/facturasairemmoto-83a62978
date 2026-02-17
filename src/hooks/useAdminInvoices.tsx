@@ -9,6 +9,23 @@ export interface UserInvoiceData {
   invoices: Invoice[];
 }
 
+interface InvoiceRow {
+  id: string;
+  user_id: string;
+  file_name: string;
+  file_path: string;
+  file_type: string;
+  client_name: string | null;
+  invoice_type: string | null;
+  operation_type: string | null;
+  classification_status: string;
+  classification_details: Record<string, unknown> | null;
+  feedback_status: string | null;
+  assigned_account: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export function useAdminInvoices(userId?: string) {
   const { isAdmin, isCoordinator } = useAdmin();
 
@@ -17,13 +34,21 @@ export function useAdminInvoices(userId?: string) {
     queryFn: async () => {
       if (!userId) return [] as UserInvoiceData[];
 
-      const { data, error } = await supabase.rpc('get_user_invoices_admin', {
-        target_user_id: userId,
-      });
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('user_id, email')
+        .eq('user_id', userId)
+        .maybeSingle();
 
-      if (error) throw error;
+      const { data: invoicesData, error: invoicesError } = await supabase
+        .rpc('get_user_invoices_admin', { target_user_id: userId }) as { data: InvoiceRow[] | null; error: any };
 
-      const invoices = (data || []).map(item => ({
+      if (invoicesError) {
+        console.error('Error fetching invoices:', invoicesError);
+        return [] as UserInvoiceData[];
+      }
+
+      const invoices = (invoicesData || []).map((item: InvoiceRow) => ({
         id: item.id,
         user_id: item.user_id,
         file_name: item.file_name,
@@ -42,7 +67,7 @@ export function useAdminInvoices(userId?: string) {
 
       return [{
         user_id: userId,
-        email: invoices[0]?.user_id || userId,
+        email: profile?.email || 'Unknown',
         invoices,
       }] as UserInvoiceData[];
     },

@@ -5,26 +5,50 @@ import { toast } from 'sonner';
 
 export type AppRole = 'superadmin' | 'admin' | 'coordinador' | 'user';
 
+interface UserStats {
+  user_id: string;
+  email: string;
+  created_at: string;
+  total_invoices: number;
+  classified_invoices: number;
+  pending_invoices: number;
+}
+
+interface Team {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+interface UserProfile {
+  user_id: string;
+  email: string;
+  team_id: string | null;
+  created_at: string;
+}
+
 export function useAdmin() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
   // Get current user's role
-  const { data: roleData, isLoading: isCheckingRole } = useQuery({
+  const { data: userRole, isLoading: isCheckingRole } = useQuery({
     queryKey: ['userRole', user?.id],
     queryFn: async () => {
-      if (!user) return null;
-      const { data } = await supabase
+      if (!user) return 'user' as AppRole;
+      
+      const { data, error } = await supabase
         .from('user_roles')
         .select('role')
         .eq('user_id', user.id)
-        .single();
-      return data?.role || 'user';
+        .maybeSingle();
+      
+      if (error || !data) return 'user' as AppRole;
+      return data.role as AppRole;
     },
     enabled: !!user,
   });
 
-  const userRole = (roleData || 'user') as AppRole;
   const isAdmin = userRole === 'admin' || userRole === 'superadmin';
   const isSuperAdmin = userRole === 'superadmin';
   const isCoordinator = userRole === 'coordinador';
@@ -35,19 +59,7 @@ export function useAdmin() {
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_user_stats');
       if (error) throw error;
-
-      // Get roles for all users
-      const { data: roles } = await supabase.from('user_roles').select('user_id, role');
-      const { data: profiles } = await supabase.from('profiles').select('user_id, team_id');
-
-      const roleMap = new Map((roles || []).map(r => [r.user_id, r.role]));
-      const teamMap = new Map((profiles || []).map(p => [p.user_id, p.team_id]));
-
-      return (data || []).map(u => ({
-        ...u,
-        role: roleMap.get(u.user_id) || 'user',
-        team_id: teamMap.get(u.user_id) || null,
-      }));
+      return (data as UserStats[]) || [];
     },
     enabled: isAdmin,
   });
@@ -56,31 +68,49 @@ export function useAdmin() {
   const { data: teams = [], isLoading: isLoadingTeams, refetch: refetchTeams } = useQuery({
     queryKey: ['teams'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('teams').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('teams')
+        .select('*')
+        .order('name');
       if (error) throw error;
-      return data || [];
+      return data as Team[];
+    },
+    enabled: !!user,
+  });
+
+  // All profiles with roles (admin only)
+  const { data: allUsers = [], isLoading: isLoadingUsers, refetch: refetchUsers } = useQuery({
+    queryKey: ['allUsers'],
+    queryFn: async () => {
+      const { data: profiles, error: pErr } = await supabase
+        .from('profiles')
+        .select('user_id, email, team_id, created_at');
+      if (pErr) throw pErr;
+
+      const { data: roles, error: rErr } = await supabase
+        .from('user_roles')
+        .select('user_id, role');
+      if (rErr) throw rErr;
+
+      return (profiles || []).map(p => ({
+        ...p,
+        role: (roles || []).find(r => r.user_id === p.user_id)?.role || 'user',
+      }));
     },
     enabled: isAdmin,
   });
-
-  const allUsers = userStats.map(u => ({
-    user_id: u.user_id,
-    email: u.email,
-    team_id: u.team_id,
-    created_at: u.created_at,
-    role: u.role || 'user',
-  }));
 
   // Coordinator teams
   const { data: coordinatorTeams = [] } = useQuery({
     queryKey: ['coordinatorTeams', user?.id],
     queryFn: async () => {
       if (!user) return [];
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('coordinator_teams')
         .select('team_id')
         .eq('user_id', user.id);
-      return (data || []).map(ct => ct.team_id);
+      if (error) throw error;
+      return data.map(d => d.team_id);
     },
     enabled: isCoordinator,
   });
@@ -90,10 +120,11 @@ export function useAdmin() {
     queryKey: ['teamMembers', coordinatorTeams],
     queryFn: async () => {
       if (coordinatorTeams.length === 0) return [];
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
         .select('user_id, email, team_id')
         .in('team_id', coordinatorTeams);
+      if (error) throw error;
       return data || [];
     },
     enabled: isCoordinator && coordinatorTeams.length > 0,
@@ -128,12 +159,15 @@ export function useAdmin() {
   // Create user via edge function
   const createUserMutation = useMutation({
     mutationFn: async (params: { email: string; password: string; role: string; team_id?: string; coordinator_team_ids?: string[] }) => {
-      const { data, error } = await supabase.functions.invoke('create-user', { body: params });
+      const { data, error } = await supabase.functions.invoke('create-user', {
+        body: params,
+      });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['allUsers'] });
       queryClient.invalidateQueries({ queryKey: ['userStats'] });
       toast.success('Usuario creado exitosamente');
     },
@@ -143,12 +177,15 @@ export function useAdmin() {
   // Delete user via edge function
   const deleteUserMutation = useMutation({
     mutationFn: async (userId: string) => {
-      const { data, error } = await supabase.functions.invoke('delete-user', { body: { user_id: userId } });
+      const { data, error } = await supabase.functions.invoke('delete-user', {
+        body: { user_id: userId },
+      });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['allUsers'] });
       queryClient.invalidateQueries({ queryKey: ['userStats'] });
       toast.success('Usuario eliminado');
     },
@@ -165,7 +202,7 @@ export function useAdmin() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['userStats'] });
+      queryClient.invalidateQueries({ queryKey: ['allUsers'] });
       toast.success('Equipo actualizado');
     },
     onError: (err) => toast.error(err.message),
@@ -176,12 +213,12 @@ export function useAdmin() {
     mutationFn: async ({ userId, role }: { userId: string; role: AppRole }) => {
       const { error } = await supabase
         .from('user_roles')
-        .update({ role })
+        .update({ role: role as any })
         .eq('user_id', userId);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['userStats'] });
+      queryClient.invalidateQueries({ queryKey: ['allUsers'] });
       toast.success('Rol actualizado');
     },
     onError: (err) => toast.error(err.message),
@@ -201,8 +238,8 @@ export function useAdmin() {
     isLoadingTeams,
     refetchTeams,
     allUsers,
-    isLoadingUsers: isLoadingStats,
-    refetchUsers: refetchStats,
+    isLoadingUsers,
+    refetchUsers,
     coordinatorTeams,
     teamMembers,
     isLoadingTeamMembers,

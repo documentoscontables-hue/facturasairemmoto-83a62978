@@ -5,6 +5,14 @@ import { Invoice, InvoiceType, OperationType, ClassificationStatus } from '@/typ
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 
+// Sanitize file names for Supabase Storage (remove accents and special chars)
+function sanitizeFileName(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove accents
+    .replace(/[^a-zA-Z0-9._-]/g, '_'); // Replace special chars with underscore
+}
+
 export interface ClassificationProgress {
   current: number;
   total: number;
@@ -27,13 +35,17 @@ export function useInvoices() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
+      
       return (data || []).map(item => ({
         ...item,
         invoice_type: item.invoice_type as InvoiceType | null,
         operation_type: item.operation_type as OperationType | null,
         classification_status: item.classification_status as ClassificationStatus,
         file_type: item.file_type as 'pdf' | 'image',
+        client_name: (item as any).client_name as string | null,
         classification_details: item.classification_details as Invoice['classification_details'],
+        feedback_status: (item as any).feedback_status as string | null,
+        assigned_account: (item as any).assigned_account as string | null,
       })) as Invoice[];
     },
     enabled: !!user,
@@ -44,46 +56,79 @@ export function useInvoices() {
       if (!user) throw new Error('Not authenticated');
       if (!clientName.trim()) throw new Error('El nombre del cliente es requerido');
 
-      const results: { successful: any[]; failed: any[] } = { successful: [], failed: [] };
-
+      const results: { file: string; success: boolean; error?: string }[] = [];
+      
       for (const file of files) {
         try {
           const fileExt = file.name.split('.').pop()?.toLowerCase();
-          const fileType = fileExt === 'pdf' ? 'pdf' : 'image';
-          const filePath = `${user.id}/${crypto.randomUUID()}.${fileExt}`;
+          const isPdf = fileExt === 'pdf';
+          const isImage = ['jpg', 'jpeg', 'png', 'webp'].includes(fileExt || '');
 
+          if (!isPdf && !isImage) {
+            results.push({ file: file.name, success: false, error: 'Formato no soportado' });
+            continue;
+          }
+
+          const sanitizedName = sanitizeFileName(file.name);
+          const filePath = `${user.id}/${Date.now()}-${sanitizedName}`;
+          
+          console.log(`Uploading file: ${file.name} -> ${filePath} (${file.size} bytes, type: ${file.type})`);
+          
           const { error: uploadError } = await supabase.storage
             .from('invoices')
             .upload(filePath, file);
 
-          if (uploadError) throw uploadError;
+          if (uploadError) {
+            console.error(`Storage upload error for ${file.name}:`, uploadError);
+            results.push({ file: file.name, success: false, error: uploadError.message });
+            continue;
+          }
 
-          const { data: invoice, error: insertError } = await supabase
+          const insertData: any = {
+            user_id: user.id,
+            file_name: file.name,
+            file_path: filePath,
+            file_type: isPdf ? 'pdf' : 'image',
+            client_name: clientName.trim(),
+          };
+          if (clientNit?.trim()) {
+            insertData.client_nit = clientNit.trim();
+          }
+
+          const { data: invoiceData, error: insertError } = await supabase
             .from('invoices')
-            .insert({
-              user_id: user.id,
-              file_name: file.name,
-              file_path: filePath,
-              file_type: fileType,
-              client_name: clientName.trim(),
-              client_nit: clientNit?.trim() || null,
-            })
+            .insert(insertData)
             .select()
             .single();
 
-          if (insertError) throw insertError;
-          results.successful.push(invoice);
+          if (insertError) {
+            console.error(`DB insert error for ${file.name}:`, insertError);
+            results.push({ file: file.name, success: false, error: insertError.message });
+            continue;
+          }
+          
+          console.log(`Successfully uploaded: ${file.name}, id: ${invoiceData.id}`);
+          results.push({ file: file.name, success: true });
         } catch (err) {
-          results.failed.push({ fileName: file.name, error: err });
+          const errorMsg = err instanceof Error ? err.message : 'Error desconocido';
+          console.error(`Unexpected error uploading ${file.name}:`, err);
+          results.push({ file: file.name, success: false, error: errorMsg });
         }
       }
-
-      return results;
+      
+      const successful = results.filter(r => r.success);
+      const failed = results.filter(r => !r.success);
+      
+      if (successful.length === 0 && failed.length > 0) {
+        throw new Error(`Error al subir: ${failed.map(f => `${f.file}: ${f.error}`).join(', ')}`);
+      }
+      
+      return { successful, failed };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
       if (data.failed.length > 0) {
-        toast.warning(`${data.successful.length} subida(s), ${data.failed.length} con error`);
+        toast.warning(`${data.successful.length} subida(s), ${data.failed.length} con error: ${data.failed.map(f => f.file).join(', ')}`);
       } else {
         toast.success(`${data.successful.length} factura(s) subida(s) correctamente`);
       }
@@ -94,15 +139,16 @@ export function useInvoices() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, invoice_type, operation_type }: {
-      id: string;
-      invoice_type?: InvoiceType;
+    mutationFn: async ({ id, invoice_type, operation_type }: { 
+      id: string; 
+      invoice_type?: InvoiceType; 
       operation_type?: OperationType;
     }) => {
       const { error } = await supabase
         .from('invoices')
         .update({ invoice_type, operation_type, classification_status: 'classified' })
         .eq('id', id);
+
       if (error) throw error;
     },
     onSuccess: () => {
@@ -114,29 +160,34 @@ export function useInvoices() {
     },
   });
 
+  // Helper: call classify with retries + backoff (handles edge function errors)
   const classifyWithRetry = async (invoiceId: string, maxRetries = 4): Promise<any> => {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        const { data, error } = await supabase.functions.invoke('classify-invoice', {
-          body: { invoiceId },
-        });
-        if (error) throw error;
-        return data;
-      } catch (err: any) {
-        const msg = err.message || '';
-        const isRetryable = msg.includes('429') || msg.includes('503') || msg.includes('rate') || msg.includes('overload');
-        if (isRetryable && attempt < maxRetries) {
-          const waitMs = Math.min(2000 * Math.pow(2, attempt) + Math.random() * 1000, 60000);
-          await new Promise(r => setTimeout(r, waitMs));
-          continue;
-        }
-        throw err;
+      const { data, error } = await supabase.functions.invoke('classify-invoice', {
+        body: { invoiceId },
+      });
+
+      if (!error) return data;
+
+      // Check for rate-limit / overload from edge function
+      const msg = error.message || '';
+      const isRetryable = msg.includes('429') || msg.includes('503') || msg.includes('rate') || msg.includes('overload');
+
+      if (isRetryable && attempt < maxRetries) {
+        const waitMs = Math.min(2000 * Math.pow(2, attempt) + Math.random() * 1000, 60000);
+        console.log(`Classify retry for ${invoiceId} in ${Math.round(waitMs)}ms (attempt ${attempt + 1})`);
+        await new Promise(r => setTimeout(r, waitMs));
+        continue;
       }
+
+      throw error;
     }
   };
 
   const classifyMutation = useMutation({
-    mutationFn: async (invoiceId: string) => classifyWithRetry(invoiceId),
+    mutationFn: async (invoiceId: string) => {
+      return classifyWithRetry(invoiceId);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
     },
@@ -148,22 +199,25 @@ export function useInvoices() {
   const classifyAllMutation = useMutation({
     mutationFn: async ({ invoiceIds, invoices }: { invoiceIds: string[]; invoices: Invoice[] }) => {
       const results: { id: string; success: boolean; data?: any; error?: any }[] = [];
-      const CONCURRENCY = 3;
+      const CONCURRENCY = 3; // Max parallel classifications
       let completed = 0;
 
       setClassificationProgress({ current: 0, total: invoiceIds.length });
 
+      // Process in concurrent batches
       const queue = [...invoiceIds];
       const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
         while (queue.length > 0) {
           const id = queue.shift()!;
           const invoice = invoices.find(inv => inv.id === id);
+
           try {
             const data = await classifyWithRetry(id);
             results.push({ id, success: true, data });
           } catch (err) {
             results.push({ id, success: false, error: err });
           }
+
           completed++;
           setClassificationProgress({
             current: completed,
@@ -195,40 +249,54 @@ export function useInvoices() {
   });
 
   const feedbackMutation = useMutation({
-    mutationFn: async ({
-      invoiceId, isCorrect, originalType, originalOperation, correctedType, correctedOperation,
-    }: {
-      invoiceId: string; isCorrect: boolean;
-      originalType: InvoiceType | null; originalOperation: OperationType | null;
-      correctedType?: InvoiceType; correctedOperation?: OperationType;
+    mutationFn: async ({ 
+      invoiceId, 
+      isCorrect, 
+      originalType, 
+      originalOperation, 
+      correctedType, 
+      correctedOperation 
+    }: { 
+      invoiceId: string;
+      isCorrect: boolean;
+      originalType: InvoiceType | null;
+      originalOperation: OperationType | null;
+      correctedType?: InvoiceType;
+      correctedOperation?: OperationType;
     }) => {
       if (!user) throw new Error('Not authenticated');
 
-      const { error: fbError } = await supabase.from('classification_feedback').insert({
-        invoice_id: invoiceId,
-        user_id: user.id,
-        is_correct: isCorrect,
-        original_invoice_type: originalType,
-        original_operation_type: originalOperation,
-        corrected_invoice_type: correctedType || null,
-        corrected_operation_type: correctedOperation || null,
-      });
-      if (fbError) throw fbError;
+      // Insert feedback record
+      const { error: feedbackError } = await supabase
+        .from('classification_feedback')
+        .insert({
+          invoice_id: invoiceId,
+          user_id: user.id,
+          is_correct: isCorrect,
+          original_invoice_type: originalType,
+          original_operation_type: originalOperation,
+          corrected_invoice_type: correctedType || null,
+          corrected_operation_type: correctedOperation || null,
+        });
 
-      if (!isCorrect && (correctedType || correctedOperation)) {
-        const updates: any = { feedback_status: 'corrected' };
-        if (correctedType) updates.invoice_type = correctedType;
-        if (correctedOperation) updates.operation_type = correctedOperation;
-        updates.classification_status = 'classified';
+      if (feedbackError) throw feedbackError;
 
-        const { error: upError } = await supabase
-          .from('invoices')
-          .update(updates)
-          .eq('id', invoiceId);
-        if (upError) throw upError;
-      } else {
-        await supabase.from('invoices').update({ feedback_status: 'correct' }).eq('id', invoiceId);
+      // Update invoice feedback status
+      const feedbackStatus = isCorrect ? 'correct' : 'corrected';
+      const updateData: any = { feedback_status: feedbackStatus };
+      
+      // If corrected, also update the invoice classification
+      if (!isCorrect && correctedType && correctedOperation) {
+        updateData.invoice_type = correctedType;
+        updateData.operation_type = correctedOperation;
       }
+
+      const { error: updateError } = await supabase
+        .from('invoices')
+        .update(updateData)
+        .eq('id', invoiceId);
+
+      if (updateError) throw updateError;
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
@@ -246,9 +314,10 @@ export function useInvoices() {
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const invoice = query.data?.find(i => i.id === id);
-      if (invoice) {
-        await supabase.storage.from('invoices').remove([invoice.file_path]);
-      }
+      if (!invoice) throw new Error('Factura no encontrada');
+
+      await supabase.storage.from('invoices').remove([invoice.file_path]);
+      
       const { error } = await supabase.from('invoices').delete().eq('id', id);
       if (error) throw error;
     },
@@ -263,14 +332,31 @@ export function useInvoices() {
 
   const deleteAllMutation = useMutation({
     mutationFn: async (invoiceIds: string[]) => {
-      const invoicesToDelete = query.data?.filter(i => invoiceIds.includes(i.id)) || [];
-      const filePaths = invoicesToDelete.map(i => i.file_path);
-      if (filePaths.length > 0) {
-        await supabase.storage.from('invoices').remove(filePaths);
+      const allInvoices = query.data || [];
+      const toDelete = allInvoices.filter(i => invoiceIds.includes(i.id));
+      if (toDelete.length === 0) throw new Error('No hay facturas para eliminar');
+
+      const BATCH_SIZE = 50;
+
+      // Delete files from storage in batches
+      const filePaths = toDelete.map(i => i.file_path);
+      for (let i = 0; i < filePaths.length; i += BATCH_SIZE) {
+        const batch = filePaths.slice(i, i + BATCH_SIZE);
+        const { error: storageError } = await supabase.storage.from('invoices').remove(batch);
+        if (storageError) console.error('Storage batch delete error:', storageError);
       }
-      const { error } = await supabase.from('invoices').delete().in('id', invoiceIds);
-      if (error) throw error;
-      return invoiceIds.length;
+
+      // Delete records from DB in batches
+      for (let i = 0; i < invoiceIds.length; i += BATCH_SIZE) {
+        const batch = invoiceIds.slice(i, i + BATCH_SIZE);
+        const { error } = await supabase
+          .from('invoices')
+          .delete()
+          .in('id', batch);
+        if (error) throw error;
+      }
+
+      return toDelete.length;
     },
     onSuccess: (count) => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });

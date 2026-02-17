@@ -138,7 +138,7 @@ Responde SOLO con JSON válido sin markdown:
 
     if (!aiResponse.ok) throw new Error('AI parsing failed');
 
-    const aiData: any = await aiResponse.json();
+    const aiData = await aiResponse.json();
     const content = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!content) throw new Error('No response from AI');
 

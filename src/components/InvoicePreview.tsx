@@ -22,14 +22,10 @@ export function InvoicePreview({ invoice, open, onOpenChange }: InvoicePreviewPr
 
     const fetchUrl = async () => {
       setLoading(true);
-      try {
-        const { data } = await supabase.storage
-          .from('invoices')
-          .createSignedUrl(invoice.file_path, 300);
-        setFileUrl(data?.signedUrl || null);
-      } catch {
-        setFileUrl(null);
-      }
+      const { data } = await supabase.storage
+        .from('invoices')
+        .createSignedUrl(invoice.file_path, 300);
+      setFileUrl(data?.signedUrl || null);
       setLoading(false);
     };
 
@@ -46,7 +42,9 @@ export function InvoicePreview({ invoice, open, onOpenChange }: InvoicePreviewPr
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl h-[85vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>Vista previa de {typeLabel.toLowerCase()}</DialogTitle>
+          <DialogTitle>
+            Vista previa de {typeLabel.toLowerCase()}
+          </DialogTitle>
           <p className="text-sm text-muted-foreground truncate">{invoice.file_name}</p>
         </DialogHeader>
         <div className="flex-1 min-h-0 rounded-lg overflow-hidden bg-muted">
@@ -56,10 +54,18 @@ export function InvoicePreview({ invoice, open, onOpenChange }: InvoicePreviewPr
             </div>
           ) : fileUrl ? (
             invoice.file_type === 'pdf' ? (
-              <iframe src={fileUrl} className="w-full h-full border-0" title={invoice.file_name} />
+              <iframe
+                src={fileUrl}
+                className="w-full h-full border-0"
+                title={invoice.file_name}
+              />
             ) : (
               <div className="w-full h-full flex items-center justify-center p-4 overflow-auto">
-                <img src={fileUrl} alt={invoice.file_name} className="max-w-full max-h-full object-contain" />
+                <img
+                  src={fileUrl}
+                  alt={invoice.file_name}
+                  className="max-w-full max-h-full object-contain"
+                />
               </div>
             )
           ) : (

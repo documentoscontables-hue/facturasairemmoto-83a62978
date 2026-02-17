@@ -4,6 +4,14 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 
+// Sanitize file names for Supabase Storage (remove accents and special chars)
+function sanitizeFileName(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove accents
+    .replace(/[^a-zA-Z0-9._-]/g, '_'); // Replace special chars with underscore
+}
+
 export interface AccountBook {
   id: string;
   user_id: string;
@@ -27,6 +35,7 @@ export function useAccountBook() {
   const queryClient = useQueryClient();
   const [isParsingBook, setIsParsingBook] = useState(false);
 
+  // Fetch user's account book
   const bookQuery = useQuery({
     queryKey: ['account-book', user?.id],
     queryFn: async () => {
@@ -36,13 +45,16 @@ export function useAccountBook() {
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
-        .limit(1);
+        .limit(1)
+        .maybeSingle();
+
       if (error) throw error;
-      return data && data.length > 0 ? data[0] : null;
+      return data as AccountBook | null;
     },
     enabled: !!user,
   });
 
+  // Fetch accounts from the book
   const accountsQuery = useQuery({
     queryKey: ['accounts', user?.id],
     queryFn: async () => {
@@ -51,37 +63,46 @@ export function useAccountBook() {
         .from('accounts')
         .select('*')
         .eq('user_id', user.id)
-        .order('account_code');
+        .order('account_code', { ascending: true });
+
       if (error) throw error;
-      return data || [];
+      return data as Account[];
     },
     enabled: !!user,
   });
 
+  // Upload and parse account book
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
       if (!user) throw new Error('Not authenticated');
 
       const fileExt = file.name.split('.').pop()?.toLowerCase();
-      if (!['pdf', 'xlsx', 'xls'].includes(fileExt || '')) {
+      const isPdf = fileExt === 'pdf';
+      const isExcel = ['xlsx', 'xls'].includes(fileExt || '');
+
+      if (!isPdf && !isExcel) {
         throw new Error('Formato no soportado. Use PDF o Excel.');
       }
 
       setIsParsingBook(true);
 
-      const filePath = `${user.id}/${crypto.randomUUID()}.${fileExt}`;
+      const sanitizedName = sanitizeFileName(file.name);
+      const filePath = `${user.id}/${Date.now()}-${sanitizedName}`;
+      
+      // Upload file to storage
       const { error: uploadError } = await supabase.storage
         .from('account-books')
         .upload(filePath, file);
+
       if (uploadError) throw uploadError;
 
-      // Delete existing book if any
-      if (bookQuery.data) {
-        await supabase.from('accounts').delete().eq('book_id', bookQuery.data.id);
-        await supabase.storage.from('account-books').remove([bookQuery.data.file_path]);
-        await supabase.from('account_books').delete().eq('id', bookQuery.data.id);
-      }
+      // Delete existing account books for this user
+      await supabase
+        .from('account_books')
+        .delete()
+        .eq('user_id', user.id);
 
+      // Create account book record
       const { data: bookData, error: insertError } = await supabase
         .from('account_books')
         .insert({
@@ -91,12 +112,14 @@ export function useAccountBook() {
         })
         .select()
         .single();
+
       if (insertError) throw insertError;
 
-      // Parse the book via edge function
+      // Call edge function to parse the book
       const { data: parseResult, error: parseError } = await supabase.functions.invoke('parse-account-book', {
         body: { bookId: bookData.id },
       });
+
       if (parseError) throw parseError;
 
       return { book: bookData, parseResult };
@@ -104,7 +127,7 @@ export function useAccountBook() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['account-book'] });
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      toast.success(`Libro procesado: ${result.parseResult?.accounts_count || 0} cuentas encontradas`);
+      toast.success(`Libro procesado: ${result.parseResult.accounts_count} cuentas encontradas`);
       setIsParsingBook(false);
     },
     onError: (error) => {
@@ -113,12 +136,23 @@ export function useAccountBook() {
     },
   });
 
+  // Delete account book
   const deleteMutation = useMutation({
     mutationFn: async () => {
       if (!user || !bookQuery.data) throw new Error('No book to delete');
-      await supabase.from('accounts').delete().eq('book_id', bookQuery.data.id);
-      await supabase.storage.from('account-books').remove([bookQuery.data.file_path]);
-      await supabase.from('account_books').delete().eq('id', bookQuery.data.id);
+
+      // Delete from storage
+      await supabase.storage
+        .from('account-books')
+        .remove([bookQuery.data.file_path]);
+
+      // Delete book record (accounts will be cascade deleted)
+      const { error } = await supabase
+        .from('account_books')
+        .delete()
+        .eq('id', bookQuery.data.id);
+
+      if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['account-book'] });
