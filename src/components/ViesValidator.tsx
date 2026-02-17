@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
+import { apiFetch } from '@/lib/api';
 import { Loader2, Search, CheckCircle2, XCircle, Clock, Trash2, ExternalLink, Building2, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -68,11 +68,10 @@ export function ViesValidator() {
 
     setIsValidating(true);
     try {
-      const { data, error } = await supabase.functions.invoke('validate-vies', {
-        body: { countryCode, vatNumber: vatNumber.trim() },
+      const data = await apiFetch<any>('/api/vies/validate', {
+        method: 'POST',
+        body: JSON.stringify({ countryCode, vatNumber: vatNumber.trim() }),
       });
-
-      if (error) throw error;
 
       const result: ViesQueryResult = {
         id: crypto.randomUUID(),

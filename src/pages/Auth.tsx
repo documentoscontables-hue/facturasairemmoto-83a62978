@@ -36,7 +36,7 @@ export default function Auth() {
       const { error } = await signIn(validated.email, validated.password);
 
       if (error) {
-        if (error.message.includes('Invalid login credentials')) {
+        if (error.message.includes('Credenciales inválidas') || error.message.includes('Invalid')) {
           toast.error('Credenciales inválidas');
         } else {
           toast.error(error.message);

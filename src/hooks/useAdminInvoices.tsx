@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { apiFetch } from '@/lib/api';
 import { useAdmin } from './useAdmin';
 import { Invoice, InvoiceType, OperationType, ClassificationStatus } from '@/types/invoice';
 
@@ -7,23 +7,6 @@ export interface UserInvoiceData {
   user_id: string;
   email: string;
   invoices: Invoice[];
-}
-
-interface InvoiceRow {
-  id: string;
-  user_id: string;
-  file_name: string;
-  file_path: string;
-  file_type: string;
-  client_name: string | null;
-  invoice_type: string | null;
-  operation_type: string | null;
-  classification_status: string;
-  classification_details: Record<string, unknown> | null;
-  feedback_status: string | null;
-  assigned_account: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 export function useAdminInvoices(userId?: string) {
@@ -34,21 +17,9 @@ export function useAdminInvoices(userId?: string) {
     queryFn: async () => {
       if (!userId) return [] as UserInvoiceData[];
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('user_id, email')
-        .eq('user_id', userId)
-        .maybeSingle();
+      const invoicesData = await apiFetch<any[]>(`/api/invoices/admin/${userId}`);
 
-      const { data: invoicesData, error: invoicesError } = await supabase
-        .rpc('get_user_invoices_admin', { target_user_id: userId }) as { data: InvoiceRow[] | null; error: any };
-
-      if (invoicesError) {
-        console.error('Error fetching invoices:', invoicesError);
-        return [] as UserInvoiceData[];
-      }
-
-      const invoices = (invoicesData || []).map((item: InvoiceRow) => ({
+      const invoices = invoicesData.map(item => ({
         id: item.id,
         user_id: item.user_id,
         file_name: item.file_name,
@@ -65,9 +36,10 @@ export function useAdminInvoices(userId?: string) {
         updated_at: item.updated_at,
       })) as Invoice[];
 
+      // We don't have email from this endpoint, use userId as fallback
       return [{
         user_id: userId,
-        email: profile?.email || 'Unknown',
+        email: invoices[0]?.user_id || userId,
         invoices,
       }] as UserInvoiceData[];
     },

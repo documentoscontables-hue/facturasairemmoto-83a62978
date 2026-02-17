@@ -1,7 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Invoice, INVOICE_TYPE_LABELS } from '@/types/invoice';
 import { useEffect, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { apiFetch } from '@/lib/api';
 import { Loader2 } from 'lucide-react';
 
 interface InvoicePreviewProps {
@@ -22,10 +22,12 @@ export function InvoicePreview({ invoice, open, onOpenChange }: InvoicePreviewPr
 
     const fetchUrl = async () => {
       setLoading(true);
-      const { data } = await supabase.storage
-        .from('invoices')
-        .createSignedUrl(invoice.file_path, 300);
-      setFileUrl(data?.signedUrl || null);
+      try {
+        const data = await apiFetch<{ url: string }>(`/api/invoices/${invoice.id}/download-url`);
+        setFileUrl(data.url);
+      } catch {
+        setFileUrl(null);
+      }
       setLoading(false);
     };
 

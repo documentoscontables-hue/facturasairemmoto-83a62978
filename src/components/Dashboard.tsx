@@ -19,7 +19,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import logo from '@/assets/logo.png';
 import { InvoiceType, OperationType, ClassificationStatus } from '@/types/invoice';
 import JSZip from 'jszip';
-import { supabase } from '@/integrations/supabase/client';
+import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 
 interface Filters {
@@ -113,17 +113,16 @@ export function Dashboard() {
       const zip = new JSZip();
 
       for (const invoice of filteredInvoices) {
-        const { data, error } = await supabase.storage
-          .from('invoices')
-          .download(invoice.file_path);
-
-        if (error) {
+        try {
+          const { url } = await apiFetch<{ url: string }>(`/api/invoices/${invoice.id}/download-url`);
+          const response = await fetch(url);
+          if (!response.ok) continue;
+          const data = await response.blob();
+          const folder = `${invoice.invoice_type || 'sin_clasificar'}/${invoice.operation_type || 'sin_operacion'}`;
+          zip.file(`${folder}/${invoice.file_name}`, data);
+        } catch {
           console.error('Error downloading:', invoice.file_name);
-          continue;
         }
-
-        const folder = `${invoice.invoice_type || 'sin_clasificar'}/${invoice.operation_type || 'sin_operacion'}`;
-        zip.file(`${folder}/${invoice.file_name}`, data);
       }
 
       const blob = await zip.generateAsync({ type: 'blob' });
