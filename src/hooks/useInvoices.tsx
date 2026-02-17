@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiFetch } from '@/lib/api';
+import { supabase } from '@/integrations/supabase/client';
 import { Invoice, InvoiceType, OperationType, ClassificationStatus } from '@/types/invoice';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
@@ -20,8 +20,14 @@ export function useInvoices() {
     queryKey: ['invoices', user?.id],
     queryFn: async () => {
       if (!user) return [];
-      const data = await apiFetch<any[]>('/api/invoices');
-      return data.map(item => ({
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return (data || []).map(item => ({
         ...item,
         invoice_type: item.invoice_type as InvoiceType | null,
         operation_type: item.operation_type as OperationType | null,
@@ -38,19 +44,41 @@ export function useInvoices() {
       if (!user) throw new Error('Not authenticated');
       if (!clientName.trim()) throw new Error('El nombre del cliente es requerido');
 
-      const formData = new FormData();
-      formData.append('client_name', clientName.trim());
-      if (clientNit?.trim()) formData.append('client_nit', clientNit.trim());
+      const results: { successful: any[]; failed: any[] } = { successful: [], failed: [] };
+
       for (const file of files) {
-        formData.append('files', file);
+        try {
+          const fileExt = file.name.split('.').pop()?.toLowerCase();
+          const fileType = fileExt === 'pdf' ? 'pdf' : 'image';
+          const filePath = `${user.id}/${crypto.randomUUID()}.${fileExt}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from('invoices')
+            .upload(filePath, file);
+
+          if (uploadError) throw uploadError;
+
+          const { data: invoice, error: insertError } = await supabase
+            .from('invoices')
+            .insert({
+              user_id: user.id,
+              file_name: file.name,
+              file_path: filePath,
+              file_type: fileType,
+              client_name: clientName.trim(),
+              client_nit: clientNit?.trim() || null,
+            })
+            .select()
+            .single();
+
+          if (insertError) throw insertError;
+          results.successful.push(invoice);
+        } catch (err) {
+          results.failed.push({ fileName: file.name, error: err });
+        }
       }
 
-      const data = await apiFetch<{ successful: any[]; failed: any[] }>('/api/invoices/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      return data;
+      return results;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
@@ -71,10 +99,11 @@ export function useInvoices() {
       invoice_type?: InvoiceType;
       operation_type?: OperationType;
     }) => {
-      await apiFetch(`/api/invoices/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ invoice_type, operation_type, classification_status: 'classified' }),
-      });
+      const { error } = await supabase
+        .from('invoices')
+        .update({ invoice_type, operation_type, classification_status: 'classified' })
+        .eq('id', id);
+      if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
@@ -88,7 +117,11 @@ export function useInvoices() {
   const classifyWithRetry = async (invoiceId: string, maxRetries = 4): Promise<any> => {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        return await apiFetch(`/api/invoices/${invoiceId}/classify`, { method: 'POST' });
+        const { data, error } = await supabase.functions.invoke('classify-invoice', {
+          body: { invoiceId },
+        });
+        if (error) throw error;
+        return data;
       } catch (err: any) {
         const msg = err.message || '';
         const isRetryable = msg.includes('429') || msg.includes('503') || msg.includes('rate') || msg.includes('overload');
@@ -163,30 +196,39 @@ export function useInvoices() {
 
   const feedbackMutation = useMutation({
     mutationFn: async ({
-      invoiceId,
-      isCorrect,
-      originalType,
-      originalOperation,
-      correctedType,
-      correctedOperation,
+      invoiceId, isCorrect, originalType, originalOperation, correctedType, correctedOperation,
     }: {
-      invoiceId: string;
-      isCorrect: boolean;
-      originalType: InvoiceType | null;
-      originalOperation: OperationType | null;
-      correctedType?: InvoiceType;
-      correctedOperation?: OperationType;
+      invoiceId: string; isCorrect: boolean;
+      originalType: InvoiceType | null; originalOperation: OperationType | null;
+      correctedType?: InvoiceType; correctedOperation?: OperationType;
     }) => {
-      await apiFetch(`/api/invoices/${invoiceId}/feedback`, {
-        method: 'POST',
-        body: JSON.stringify({
-          is_correct: isCorrect,
-          original_invoice_type: originalType,
-          original_operation_type: originalOperation,
-          corrected_invoice_type: correctedType || null,
-          corrected_operation_type: correctedOperation || null,
-        }),
+      if (!user) throw new Error('Not authenticated');
+
+      const { error: fbError } = await supabase.from('classification_feedback').insert({
+        invoice_id: invoiceId,
+        user_id: user.id,
+        is_correct: isCorrect,
+        original_invoice_type: originalType,
+        original_operation_type: originalOperation,
+        corrected_invoice_type: correctedType || null,
+        corrected_operation_type: correctedOperation || null,
       });
+      if (fbError) throw fbError;
+
+      if (!isCorrect && (correctedType || correctedOperation)) {
+        const updates: any = { feedback_status: 'corrected' };
+        if (correctedType) updates.invoice_type = correctedType;
+        if (correctedOperation) updates.operation_type = correctedOperation;
+        updates.classification_status = 'classified';
+
+        const { error: upError } = await supabase
+          .from('invoices')
+          .update(updates)
+          .eq('id', invoiceId);
+        if (upError) throw upError;
+      } else {
+        await supabase.from('invoices').update({ feedback_status: 'correct' }).eq('id', invoiceId);
+      }
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
@@ -203,7 +245,12 @@ export function useInvoices() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      await apiFetch(`/api/invoices/${id}`, { method: 'DELETE' });
+      const invoice = query.data?.find(i => i.id === id);
+      if (invoice) {
+        await supabase.storage.from('invoices').remove([invoice.file_path]);
+      }
+      const { error } = await supabase.from('invoices').delete().eq('id', id);
+      if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
@@ -216,11 +263,14 @@ export function useInvoices() {
 
   const deleteAllMutation = useMutation({
     mutationFn: async (invoiceIds: string[]) => {
-      const data = await apiFetch<{ count: number }>('/api/invoices/delete-batch', {
-        method: 'POST',
-        body: JSON.stringify({ ids: invoiceIds }),
-      });
-      return data.count;
+      const invoicesToDelete = query.data?.filter(i => invoiceIds.includes(i.id)) || [];
+      const filePaths = invoicesToDelete.map(i => i.file_path);
+      if (filePaths.length > 0) {
+        await supabase.storage.from('invoices').remove(filePaths);
+      }
+      const { error } = await supabase.from('invoices').delete().in('id', invoiceIds);
+      if (error) throw error;
+      return invoiceIds.length;
     },
     onSuccess: (count) => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });

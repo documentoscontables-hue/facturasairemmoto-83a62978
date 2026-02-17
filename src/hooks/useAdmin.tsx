@@ -1,42 +1,53 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiFetch } from '@/lib/api';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 
 export type AppRole = 'superadmin' | 'admin' | 'coordinador' | 'user';
 
-interface UserWithStats {
-  user_id: string;
-  email: string;
-  team_id: string | null;
-  created_at: string;
-  role: string;
-  total_invoices: number;
-  classified_invoices: number;
-  pending_invoices: number;
-}
-
-interface Team {
-  id: string;
-  name: string;
-  created_at: string;
-}
-
 export function useAdmin() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  const userRole = (user?.role || 'user') as AppRole;
+  // Get current user's role
+  const { data: roleData, isLoading: isCheckingRole } = useQuery({
+    queryKey: ['userRole', user?.id],
+    queryFn: async () => {
+      if (!user) return null;
+      const { data } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .single();
+      return data?.role || 'user';
+    },
+    enabled: !!user,
+  });
+
+  const userRole = (roleData || 'user') as AppRole;
   const isAdmin = userRole === 'admin' || userRole === 'superadmin';
   const isSuperAdmin = userRole === 'superadmin';
   const isCoordinator = userRole === 'coordinador';
 
-  // User stats (admin only) - combined endpoint
+  // User stats (admin only)
   const { data: userStats = [], isLoading: isLoadingStats, refetch: refetchStats } = useQuery({
     queryKey: ['userStats'],
     queryFn: async () => {
-      const data = await apiFetch<UserWithStats[]>('/api/admin/users');
-      return data;
+      const { data, error } = await supabase.rpc('get_user_stats');
+      if (error) throw error;
+
+      // Get roles for all users
+      const { data: roles } = await supabase.from('user_roles').select('user_id, role');
+      const { data: profiles } = await supabase.from('profiles').select('user_id, team_id');
+
+      const roleMap = new Map((roles || []).map(r => [r.user_id, r.role]));
+      const teamMap = new Map((profiles || []).map(p => [p.user_id, p.team_id]));
+
+      return (data || []).map(u => ({
+        ...u,
+        role: roleMap.get(u.user_id) || 'user',
+        team_id: teamMap.get(u.user_id) || null,
+      }));
     },
     enabled: isAdmin,
   });
@@ -44,11 +55,14 @@ export function useAdmin() {
   // Teams
   const { data: teams = [], isLoading: isLoadingTeams, refetch: refetchTeams } = useQuery({
     queryKey: ['teams'],
-    queryFn: async () => apiFetch<Team[]>('/api/admin/teams'),
+    queryFn: async () => {
+      const { data, error } = await supabase.from('teams').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
     enabled: isAdmin,
   });
 
-  // All users (reuse userStats since admin/users returns everything)
   const allUsers = userStats.map(u => ({
     user_id: u.user_id,
     email: u.email,
@@ -62,7 +76,11 @@ export function useAdmin() {
     queryKey: ['coordinatorTeams', user?.id],
     queryFn: async () => {
       if (!user) return [];
-      return apiFetch<string[]>(`/api/admin/coordinator-teams/${user.id}`);
+      const { data } = await supabase
+        .from('coordinator_teams')
+        .select('team_id')
+        .eq('user_id', user.id);
+      return (data || []).map(ct => ct.team_id);
     },
     enabled: isCoordinator,
   });
@@ -72,11 +90,11 @@ export function useAdmin() {
     queryKey: ['teamMembers', coordinatorTeams],
     queryFn: async () => {
       if (coordinatorTeams.length === 0) return [];
-      // Get all users and filter by coordinator's teams
-      const users = await apiFetch<UserWithStats[]>('/api/admin/users');
-      return users
-        .filter(u => u.team_id && coordinatorTeams.includes(u.team_id))
-        .map(u => ({ user_id: u.user_id, email: u.email, team_id: u.team_id }));
+      const { data } = await supabase
+        .from('profiles')
+        .select('user_id, email, team_id')
+        .in('team_id', coordinatorTeams);
+      return data || [];
     },
     enabled: isCoordinator && coordinatorTeams.length > 0,
   });
@@ -84,10 +102,8 @@ export function useAdmin() {
   // Create team
   const createTeamMutation = useMutation({
     mutationFn: async (name: string) => {
-      await apiFetch('/api/admin/teams', {
-        method: 'POST',
-        body: JSON.stringify({ name }),
-      });
+      const { error } = await supabase.from('teams').insert({ name });
+      if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['teams'] });
@@ -99,7 +115,8 @@ export function useAdmin() {
   // Delete team
   const deleteTeamMutation = useMutation({
     mutationFn: async (id: string) => {
-      await apiFetch(`/api/admin/teams/${id}`, { method: 'DELETE' });
+      const { error } = await supabase.from('teams').delete().eq('id', id);
+      if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['teams'] });
@@ -108,13 +125,11 @@ export function useAdmin() {
     onError: (err) => toast.error(err.message),
   });
 
-  // Create user
+  // Create user via edge function
   const createUserMutation = useMutation({
     mutationFn: async (params: { email: string; password: string; role: string; team_id?: string; coordinator_team_ids?: string[] }) => {
-      const data = await apiFetch('/api/admin/create-user', {
-        method: 'POST',
-        body: JSON.stringify(params),
-      });
+      const { data, error } = await supabase.functions.invoke('create-user', { body: params });
+      if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data;
     },
@@ -125,13 +140,11 @@ export function useAdmin() {
     onError: (err) => toast.error(err.message),
   });
 
-  // Delete user
+  // Delete user via edge function
   const deleteUserMutation = useMutation({
     mutationFn: async (userId: string) => {
-      const data = await apiFetch('/api/admin/delete-user', {
-        method: 'POST',
-        body: JSON.stringify({ user_id: userId }),
-      });
+      const { data, error } = await supabase.functions.invoke('delete-user', { body: { user_id: userId } });
+      if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data;
     },
@@ -145,10 +158,11 @@ export function useAdmin() {
   // Update user team
   const updateUserTeamMutation = useMutation({
     mutationFn: async ({ userId, teamId }: { userId: string; teamId: string | null }) => {
-      await apiFetch(`/api/admin/users/${userId}/team`, {
-        method: 'PUT',
-        body: JSON.stringify({ team_id: teamId }),
-      });
+      const { error } = await supabase
+        .from('profiles')
+        .update({ team_id: teamId })
+        .eq('user_id', userId);
+      if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['userStats'] });
@@ -160,10 +174,11 @@ export function useAdmin() {
   // Update user role
   const updateUserRoleMutation = useMutation({
     mutationFn: async ({ userId, role }: { userId: string; role: AppRole }) => {
-      await apiFetch(`/api/admin/users/${userId}/role`, {
-        method: 'PUT',
-        body: JSON.stringify({ role }),
-      });
+      const { error } = await supabase
+        .from('user_roles')
+        .update({ role })
+        .eq('user_id', userId);
+      if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['userStats'] });
@@ -174,11 +189,11 @@ export function useAdmin() {
 
   return {
     userRole,
-    isCheckingRole: false,
+    isCheckingRole,
     isAdmin,
     isSuperAdmin,
     isCoordinator,
-    isCheckingAdmin: false,
+    isCheckingAdmin: isCheckingRole,
     userStats,
     isLoadingStats,
     refetchStats,

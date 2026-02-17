@@ -23,29 +23,23 @@ export default function Auth() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (user) {
-      navigate('/');
-    }
+    if (user) navigate('/');
   }, [user, navigate]);
 
   const handleSubmit = async () => {
     try {
       const validated = authSchema.parse({ email, password });
       setIsLoading(true);
-
       const { error } = await signIn(validated.email, validated.password);
-
       if (error) {
-        if (error.message.includes('Credenciales inválidas') || error.message.includes('Invalid')) {
+        if (error.message.includes('Invalid login')) {
           toast.error('Credenciales inválidas');
         } else {
           toast.error(error.message);
         }
       }
     } catch (err) {
-      if (err instanceof z.ZodError) {
-        toast.error(err.errors[0].message);
-      }
+      if (err instanceof z.ZodError) toast.error(err.errors[0].message);
     } finally {
       setIsLoading(false);
     }
@@ -60,42 +54,21 @@ export default function Auth() {
             Gestión inteligente de facturas con clasificación automática
           </p>
         </div>
-
         <Card className="glass-card">
           <CardHeader className="space-y-1">
             <CardTitle className="text-xl">Iniciar Sesión</CardTitle>
-            <CardDescription>
-              Ingresa tus credenciales para acceder al sistema
-            </CardDescription>
+            <CardDescription>Ingresa tus credenciales para acceder al sistema</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="tu@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-              />
+              <Input id="email" type="email" placeholder="tu@email.com" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSubmit()} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Contraseña</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-              />
+              <Input id="password" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSubmit()} />
             </div>
-            <Button 
-              className="w-full gradient-primary"
-              onClick={handleSubmit}
-              disabled={isLoading}
-            >
+            <Button className="w-full gradient-primary" onClick={handleSubmit} disabled={isLoading}>
               {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
               Iniciar sesión
             </Button>
