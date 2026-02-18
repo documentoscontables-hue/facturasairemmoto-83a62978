@@ -1,4 +1,4 @@
-export type InvoiceType = 'emitida' | 'recibida' | 'proforma' | 'albaran' | 'ticket' | 'no_es_factura';
+export type InvoiceType = 'emitida' | 'recibida' | 'proforma' | 'albaran' | 'ticket' | 'no_es_factura' | 'duplicada';
 
 export type ClassificationStatus = 'pending' | 'classified' | 'error';
 
@@ -42,6 +42,7 @@ export const INVOICE_TYPE_LABELS: Record<InvoiceType, string> = {
   albaran: 'Albarán',
   ticket: 'Ticket',
   no_es_factura: 'No es Factura',
+  duplicada: 'Duplicada',
 };
 
 export interface ExtractedInvoiceData {
