@@ -75,6 +75,7 @@ export function Dashboard() {
     albaranes: invoices.filter(i => i.invoice_type === 'albaran').length,
     tickets: invoices.filter(i => i.invoice_type === 'ticket').length,
     noEsFactura: invoices.filter(i => i.invoice_type === 'no_es_factura').length,
+    duplicadas: invoices.filter(i => i.invoice_type === 'duplicada').length,
     pending: invoices.filter(i => i.classification_status === 'pending').length,
   }), [invoices]);
 
@@ -122,7 +123,12 @@ export function Dashboard() {
           continue;
         }
 
-        const folder = `${invoice.invoice_type || 'sin_clasificar'}/${invoice.operation_type || 'sin_operacion'}`;
+        let folder: string;
+        if (invoice.invoice_type === 'duplicada') {
+          folder = 'duplicadas';
+        } else {
+          folder = `${invoice.invoice_type || 'sin_clasificar'}/${invoice.operation_type || 'sin_operacion'}`;
+        }
         zip.file(`${folder}/${invoice.file_name}`, data);
       }
 
@@ -186,7 +192,7 @@ export function Dashboard() {
 
           <TabsContent value="clasificacion" className="space-y-8">
             {/* Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-9 gap-4">
               {[
                 { label: 'Total', value: stats.total, color: 'bg-primary/10 text-primary' },
                 { label: 'Emitidas', value: stats.emitidas, color: 'bg-emitida/10 text-emitida' },
@@ -195,6 +201,7 @@ export function Dashboard() {
                 { label: 'Albaranes', value: stats.albaranes, color: 'bg-muted text-muted-foreground' },
                 { label: 'Tickets', value: stats.tickets, color: 'bg-muted text-muted-foreground' },
                 { label: 'No Factura', value: stats.noEsFactura, color: 'bg-destructive/10 text-destructive' },
+                { label: 'Duplicadas', value: stats.duplicadas, color: 'bg-orange-500/10 text-orange-500' },
                 { label: 'Pendientes', value: stats.pending, color: 'bg-warning/10 text-warning' },
               ].map((stat) => (
                 <Card key={stat.label} className="glass-card">
