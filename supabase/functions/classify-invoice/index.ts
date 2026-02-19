@@ -243,6 +243,70 @@ async function detectDuplicate(
   return { isDuplicate: false };
 }
 
+// Robust JSON extractor: handles markdown fences, truncated JSON, trailing commas, control chars
+function extractJsonFromResponse(response: string): any {
+  // Strip markdown code blocks (```json ... ``` or ``` ... ```)
+  let cleaned = response
+    .replace(/```json\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
+
+  // Find JSON object boundaries
+  const jsonStart = cleaned.indexOf('{');
+  const jsonEnd = cleaned.lastIndexOf('}');
+
+  if (jsonStart === -1) {
+    throw new Error("No JSON object found in AI response");
+  }
+
+  // If closing brace exists, extract the full object
+  if (jsonEnd > jsonStart) {
+    cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+  } else {
+    // JSON is truncated - extract what we have from start
+    cleaned = cleaned.substring(jsonStart);
+  }
+
+  // First attempt: direct parse
+  try {
+    return JSON.parse(cleaned);
+  } catch (_e1) {
+    // Fix common issues: trailing commas, control characters
+    let fixed = cleaned
+      .replace(/,\s*}/g, '}')
+      .replace(/,\s*]/g, ']')
+      .replace(/[\x00-\x1F\x7F]/g, (c) => c === '\n' || c === '\r' || c === '\t' ? c : '');
+
+    try {
+      return JSON.parse(fixed);
+    } catch (_e2) {
+      // Last resort: repair truncated JSON by closing open braces/brackets
+      let depth = 0;
+      let inString = false;
+      let escape = false;
+      for (const ch of fixed) {
+        if (escape) { escape = false; continue; }
+        if (ch === '\\') { escape = true; continue; }
+        if (ch === '"') { inString = !inString; continue; }
+        if (!inString) {
+          if (ch === '{' || ch === '[') depth++;
+          else if (ch === '}' || ch === ']') depth--;
+        }
+      }
+      // Close any open structures
+      let repaired = fixed;
+      if (inString) repaired += '"';
+      while (depth > 0) { repaired += '}'; depth--; }
+
+      try {
+        return JSON.parse(repaired);
+      } catch (e3) {
+        throw new Error(`Cannot parse AI response after repair: ${e3}`);
+      }
+    }
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -354,7 +418,7 @@ serve(async (req) => {
                 ],
               },
             ],
-            generationConfig: { temperature: 0.1, topP: 0.95, maxOutputTokens: 4096 },
+            generationConfig: { temperature: 0.1, topP: 0.95, maxOutputTokens: 8192 },
           }),
         }
       );
@@ -390,9 +454,8 @@ serve(async (req) => {
 
     let classification;
     try {
-      const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim();
-      classification = JSON.parse(cleanContent);
-    } catch {
+      classification = extractJsonFromResponse(content);
+    } catch (parseErr) {
       console.error("Failed to parse AI response:", content);
       throw new Error("Invalid AI response format");
     }
