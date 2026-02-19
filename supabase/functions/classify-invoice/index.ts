@@ -502,6 +502,7 @@ serve(async (req) => {
     }
 
     // Regular invoice processing
+    // Exhaustive list of ALL valid values accepted by the DB constraint
     const validOperationTypes = [
       'interiores_iva_deducible',
       'facturas_compensaciones_agrarias',
@@ -519,13 +520,103 @@ serve(async (req) => {
       'otro'
     ];
 
+    // Robust normalization map: catch any creative AI variant and map it to a valid value
+    const operationTypeNormalizationMap: Record<string, string> = {
+      // Intracomunitaria bienes variants
+      'adquisicion_intracomunitaria': 'adquisiciones_intracomunitarias_bienes',
+      'adquisicion_intracomunitaria_bienes': 'adquisiciones_intracomunitarias_bienes',
+      'adquisiciones_intracomunitaria_bienes': 'adquisiciones_intracomunitarias_bienes',
+      'operacion_intracomunitaria_bienes': 'adquisiciones_intracomunitarias_bienes',
+      'operaciones_intracomunitarias_bienes': 'adquisiciones_intracomunitarias_bienes',
+      'adquisicion_bienes_intracomunitaria': 'adquisiciones_intracomunitarias_bienes',
+      // Intracomunitaria servicios variants
+      'adquisicion_intracomunitaria_servicios': 'adquisiciones_intracomunitarias_servicios',
+      'adquisiciones_intracomunitaria_servicios': 'adquisiciones_intracomunitarias_servicios',
+      'operacion_intracomunitaria_servicios': 'adquisiciones_intracomunitarias_servicios',
+      'operaciones_intracomunitarias_servicios': 'adquisiciones_intracomunitarias_servicios',
+      'prestacion_intracomunitaria_servicios': 'adquisiciones_intracomunitarias_servicios',
+      'prestaciones_intracomunitarias_servicios': 'adquisiciones_intracomunitarias_servicios',
+      'prestacion_servicios_intracomunitaria': 'adquisiciones_intracomunitarias_servicios',
+      'prestaciones_servicios_intracomunitarias': 'adquisiciones_intracomunitarias_servicios',
+      'servicios_intracomunitarios': 'adquisiciones_intracomunitarias_servicios',
+      'servicio_intracomunitario': 'adquisiciones_intracomunitarias_servicios',
+      // Generic intracomunitaria (no bienes/servicios specified) — default to servicios for emitidas, bienes for recibidas handled below
+      'operacion_intracomunitaria': 'adquisiciones_intracomunitarias_servicios',
+      'operaciones_intracomunitarias': 'adquisiciones_intracomunitarias_bienes',
+      'intracomunitaria': 'adquisiciones_intracomunitarias_bienes',
+      'intracomunitario': 'adquisiciones_intracomunitarias_bienes',
+      // ISP variants
+      'inversion_del_sujeto_pasivo': 'inversion_sujeto_pasivo',
+      'isp': 'inversion_sujeto_pasivo',
+      'reverse_charge': 'inversion_sujeto_pasivo',
+      // IVA deducible variants
+      'interior_iva_deducible': 'interiores_iva_deducible',
+      'interiores_con_iva': 'interiores_iva_deducible',
+      'interior_con_iva': 'interiores_iva_deducible',
+      'nacional_iva_deducible': 'interiores_iva_deducible',
+      'nacional': 'interiores_iva_deducible',
+      'interior': 'interiores_iva_deducible',
+      // No deducible variants
+      'iva_no_deducibles': 'iva_no_deducible',
+      'no_deducible': 'iva_no_deducible',
+      'gasto_no_deducible': 'iva_no_deducible',
+      // Importaciones
+      'importacion': 'importaciones',
+      'extra_comunitario': 'importaciones',
+      'extracomunitario': 'importaciones',
+      'extra_comunitaria': 'importaciones',
+      // Suplidos
+      'suplido': 'suplidos',
+      // Kit digital
+      'kit_digital_red_es': 'kit_digital',
+      // Amazon
+      'amazon_eu': 'amazon',
+      'amazon_services': 'amazon',
+      // No aplica
+      'no_aplica_iva': 'no_aplica',
+      'exenta': 'no_aplica',
+      'exento': 'no_aplica',
+      // No registrado VIES
+      'no_registrado_en_vies': 'no_registrado_vies',
+      'no_registrado_roi': 'no_registrado_vies',
+      'sin_registro_vies': 'no_registrado_vies',
+      // Compensaciones agrarias
+      'compensacion_agraria': 'facturas_compensaciones_agrarias',
+      'compensaciones_agrarias': 'facturas_compensaciones_agrarias',
+      'regimen_especial_agricultura': 'facturas_compensaciones_agrarias',
+    };
+
     // Force operation_type to "ticket" when invoice_type is "ticket"
     if (classification.invoice_type === 'ticket') {
       classification.operation_type = 'ticket';
     }
 
-    if (!validOperationTypes.includes(classification.operation_type)) {
-      classification.operation_type = 'otro';
+    // Normalize the operation_type value
+    const rawOperationType = (classification.operation_type || '').toLowerCase().trim();
+    if (!validOperationTypes.includes(rawOperationType)) {
+      // Try the normalization map
+      const normalized = operationTypeNormalizationMap[rawOperationType];
+      if (normalized) {
+        console.log(`NORMALIZATION: Mapped AI operation_type "${rawOperationType}" → "${normalized}"`);
+        classification.operation_type = normalized;
+      } else {
+        // For generic intracomunitaria based on invoice_type
+        if (rawOperationType.includes('intracomunit')) {
+          if (classification.invoice_type === 'recibida') {
+            // Determine bienes vs servicios from description
+            const desc = (classification.descripcion || classification.reasoning || '').toLowerCase();
+            const isServices = desc.includes('servic') || desc.includes('software') || desc.includes('licen') || desc.includes('honorar') || desc.includes('asesora') || desc.includes('consulto');
+            classification.operation_type = isServices ? 'adquisiciones_intracomunitarias_servicios' : 'adquisiciones_intracomunitarias_bienes';
+          } else {
+            // emitida - use servicios by default for intracomunitaria
+            classification.operation_type = 'adquisiciones_intracomunitarias_servicios';
+          }
+          console.log(`NORMALIZATION: Generic intracomunitaria "${rawOperationType}" → "${classification.operation_type}"`);
+        } else {
+          console.log(`NORMALIZATION: Unknown operation_type "${rawOperationType}" → fallback "otro"`);
+          classification.operation_type = 'otro';
+        }
+      }
     }
 
     // POST-CLASSIFICATION VALIDATION: Ensure emitida/recibida is correct based on client_name
