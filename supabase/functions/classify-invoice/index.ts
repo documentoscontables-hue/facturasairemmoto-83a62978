@@ -207,18 +207,22 @@ async function detectDuplicate(
   // Need at least some data to compare
   if (!total && !numeroFactura) return { isDuplicate: false };
 
-  // Fetch other classified invoices from the same user (exclude current)
+  // Fetch ALL other invoices from same user that have extracted_data (classified or just saved)
+  // NOT filtering by classification_status so we catch invoices classified in this same session
   const { data: existingInvoices, error } = await supabase
     .from("invoices")
-    .select("id, file_name, classification_details, invoice_type")
+    .select("id, file_name, classification_details, invoice_type, classification_status")
     .eq("user_id", userId)
-    .eq("classification_status", "classified")
     .neq("id", invoiceId)
-    .neq("invoice_type", "duplicada");
+    .neq("invoice_type", "duplicada")
+    .not("classification_details", "is", null);
 
   if (error || !existingInvoices || existingInvoices.length === 0) {
+    console.log(`DUPLICATE CHECK: No existing invoices found to compare against for invoice ${invoiceId}`);
     return { isDuplicate: false };
   }
+
+  console.log(`DUPLICATE CHECK: Comparing invoice ${invoiceId} against ${existingInvoices.length} existing invoices`);
 
   for (const existing of existingInvoices) {
     const details = existing.classification_details;
@@ -233,13 +237,16 @@ async function detectDuplicate(
     if (total && ed.total && Math.abs(Number(total) - Number(ed.total)) < 0.01) matchScore += 2;
     if (fechaFactura && ed.fecha_factura && fechaFactura === ed.fecha_factura) matchScore += 2;
 
-    // Score >= 5 means strong duplicate match
-    if (matchScore >= 5) {
+    // Score >= 4 means strong duplicate match (lowered from 5 to catch more duplicates)
+    if (matchScore >= 4) {
       console.log(`DUPLICATE DETECTED: Invoice ${invoiceId} matches ${existing.id} (score: ${matchScore})`);
       return { isDuplicate: true, originalId: existing.id, originalFileName: existing.file_name };
+    } else if (matchScore > 0) {
+      console.log(`DUPLICATE CHECK: Partial match with ${existing.id} (score: ${matchScore} < 4, not a duplicate)`);
     }
   }
 
+  console.log(`DUPLICATE CHECK: No duplicates found for invoice ${invoiceId}`);
   return { isDuplicate: false };
 }
 

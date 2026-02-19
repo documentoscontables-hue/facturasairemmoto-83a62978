@@ -160,8 +160,8 @@ export function useInvoices() {
     },
   });
 
-  // Helper: call classify with retries + backoff (handles edge function errors)
-  const classifyWithRetry = async (invoiceId: string, maxRetries = 4): Promise<any> => {
+  // Helper: call classify with retries + backoff (retries on ANY error, not just rate limits)
+  const classifyWithRetry = async (invoiceId: string, maxRetries = 5): Promise<any> => {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const { data, error } = await supabase.functions.invoke('classify-invoice', {
         body: { invoiceId },
@@ -169,13 +169,10 @@ export function useInvoices() {
 
       if (!error) return data;
 
-      // Check for rate-limit / overload from edge function
-      const msg = error.message || '';
-      const isRetryable = msg.includes('429') || msg.includes('503') || msg.includes('rate') || msg.includes('overload');
-
-      if (isRetryable && attempt < maxRetries) {
+      // Retry on ANY error (including 500 "Invalid AI response format", network errors, etc.)
+      if (attempt < maxRetries) {
         const waitMs = Math.min(2000 * Math.pow(2, attempt) + Math.random() * 1000, 60000);
-        console.log(`Classify retry for ${invoiceId} in ${Math.round(waitMs)}ms (attempt ${attempt + 1})`);
+        console.log(`Classify retry for ${invoiceId} in ${Math.round(waitMs)}ms (attempt ${attempt + 1}/${maxRetries}) — error: ${error.message}`);
         await new Promise(r => setTimeout(r, waitMs));
         continue;
       }
@@ -199,36 +196,41 @@ export function useInvoices() {
   const classifyAllMutation = useMutation({
     mutationFn: async ({ invoiceIds, invoices }: { invoiceIds: string[]; invoices: Invoice[] }) => {
       const results: { id: string; success: boolean; data?: any; error?: any }[] = [];
-      const CONCURRENCY = 3; // Max parallel classifications
+      // CONCURRENCY = 1: sequential processing guarantees duplicate detection works correctly.
+      // Each invoice is fully saved in DB before the next one checks for duplicates.
       let completed = 0;
 
       setClassificationProgress({ current: 0, total: invoiceIds.length });
 
-      // Process in concurrent batches
-      const queue = [...invoiceIds];
-      const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
-        while (queue.length > 0) {
-          const id = queue.shift()!;
-          const invoice = invoices.find(inv => inv.id === id);
+      for (const id of invoiceIds) {
+        const invoice = invoices.find(inv => inv.id === id);
 
+        try {
+          const data = await classifyWithRetry(id);
+          results.push({ id, success: true, data });
+        } catch (err) {
+          console.error(`Failed to classify invoice ${id} after all retries:`, err);
+          results.push({ id, success: false, error: err });
+          // Mark as error in DB so it's visible to the user
           try {
-            const data = await classifyWithRetry(id);
-            results.push({ id, success: true, data });
-          } catch (err) {
-            results.push({ id, success: false, error: err });
+            await supabase
+              .from('invoices')
+              .update({ classification_status: 'error' })
+              .eq('id', id);
+          } catch (dbErr) {
+            console.error('Could not mark invoice as error:', dbErr);
           }
-
-          completed++;
-          setClassificationProgress({
-            current: completed,
-            total: invoiceIds.length,
-            currentFileName: invoice?.file_name,
-          });
-          queryClient.invalidateQueries({ queryKey: ['invoices'] });
         }
-      });
 
-      await Promise.all(workers);
+        completed++;
+        setClassificationProgress({
+          current: completed,
+          total: invoiceIds.length,
+          currentFileName: invoice?.file_name,
+        });
+        queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      }
+
       return results;
     },
     onSuccess: (results) => {
