@@ -200,12 +200,16 @@ async function detectDuplicate(
   }
 
   const total = classification.total;
-  const numeroFactura = classification.numero_factura;
-  const idEmisor = classification.id_emisor;
+  const numeroFactura = classification.numero_factura ? String(classification.numero_factura).trim() : null;
+  const idEmisor = classification.id_emisor ? String(classification.id_emisor).trim() : null;
   const fechaFactura = classification.fecha_factura;
 
-  // Need at least some data to compare
-  if (!total && !numeroFactura) return { isDuplicate: false };
+  // Invoice number is MANDATORY to detect a duplicate.
+  // Without it we cannot reliably distinguish two different invoices from the same issuer.
+  if (!numeroFactura) {
+    console.log(`DUPLICATE CHECK: Skipping — no invoice number extracted for ${invoiceId}`);
+    return { isDuplicate: false };
+  }
 
   // Fetch ALL other invoices from same user that have extracted_data (classified or just saved)
   // NOT filtering by classification_status so we catch invoices classified in this same session
@@ -222,27 +226,32 @@ async function detectDuplicate(
     return { isDuplicate: false };
   }
 
-  console.log(`DUPLICATE CHECK: Comparing invoice ${invoiceId} against ${existingInvoices.length} existing invoices`);
+  console.log(`DUPLICATE CHECK: Comparing invoice ${invoiceId} (nº ${numeroFactura}, emisor ${idEmisor}, total ${total}, fecha ${fechaFactura}) against ${existingInvoices.length} existing invoices`);
 
   for (const existing of existingInvoices) {
     const details = existing.classification_details;
     if (!details?.extracted_data) continue;
 
     const ed = details.extracted_data;
-    let matchScore = 0;
+    const edNumero = ed.numero_factura ? String(ed.numero_factura).trim() : null;
+    const edEmisor = ed.id_emisor ? String(ed.id_emisor).trim() : null;
 
-    // Compare key fields - each match adds points
-    if (numeroFactura && ed.numero_factura && numeroFactura === ed.numero_factura) matchScore += 3;
-    if (idEmisor && ed.id_emisor && idEmisor === ed.id_emisor) matchScore += 2;
+    // Invoice number MUST match — without this, we never declare a duplicate.
+    // Different invoices from the same issuer share emisor+fecha but have different numbers.
+    if (!edNumero || numeroFactura !== edNumero) continue;
+
+    let matchScore = 4; // Invoice number already matched — base score
+    if (idEmisor && edEmisor && idEmisor === edEmisor) matchScore += 3;
     if (total && ed.total && Math.abs(Number(total) - Number(ed.total)) < 0.01) matchScore += 2;
-    if (fechaFactura && ed.fecha_factura && fechaFactura === ed.fecha_factura) matchScore += 2;
+    if (fechaFactura && ed.fecha_factura && fechaFactura === ed.fecha_factura) matchScore += 1;
 
-    // Score >= 4 means strong duplicate match (lowered from 5 to catch more duplicates)
-    if (matchScore >= 4) {
-      console.log(`DUPLICATE DETECTED: Invoice ${invoiceId} matches ${existing.id} (score: ${matchScore})`);
+    // Threshold: invoice number match (4) + at least one more strong field (emisor=3 or total=2)
+    // Minimum to declare duplicate: same number + same emisor (score=7) OR same number + same total + same date (score=7)
+    if (matchScore >= 7) {
+      console.log(`DUPLICATE DETECTED: Invoice ${invoiceId} (nº ${numeroFactura}) matches ${existing.id} (score: ${matchScore})`);
       return { isDuplicate: true, originalId: existing.id, originalFileName: existing.file_name };
-    } else if (matchScore > 0) {
-      console.log(`DUPLICATE CHECK: Partial match with ${existing.id} (score: ${matchScore} < 4, not a duplicate)`);
+    } else {
+      console.log(`DUPLICATE CHECK: Invoice number matches but other fields differ — NOT a duplicate. Invoice ${invoiceId} vs ${existing.id} (score: ${matchScore})`);
     }
   }
 
