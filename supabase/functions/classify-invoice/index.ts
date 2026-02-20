@@ -20,10 +20,12 @@ Evalúa cada documento siguiendo este orden estricto:
 Busca en el documento impreso tanto el Nombre del Cliente ({{CLIENT_NAME}}) como el NIF/CIF del Cliente ({{CLIENT_NIT}}).
 - **Regla ABSOLUTA:** Si NI el nombre NI el NIF/CIF del cliente aparecen impresos en el documento, clasifícalo inmediatamente como **Ticket** (invoice_type = "ticket", operation_type = "ticket"). Esta regla NO tiene excepciones: aunque el documento diga "Factura", "Proforma" o "Albarán", si no aparecen los datos del cliente, es Ticket.
 
-**PASO 2 - Documentos Provisionales:**
+**PASO 2 - Documentos Provisionales (PRIORIDAD ALTA - verificar ANTES de Amazon):**
 Si se identifica al cliente (por nombre o NIF/CIF), verifica si el documento indica:
-- "Albarán" / "Delivery Note" / "Packing Slip" / "Nota de entrega" / "Bon de livraison" / "Lieferschein" → invoice_type = "albaran", operation_type = "no_aplica"
-- "Proforma" / "Factura Proforma" / "Pro forma Invoice" / "Pro-forma" → invoice_type = "proforma", operation_type = "no_aplica"
+- "Albarán" / "Delivery Note" / "Packing Slip" / "Nota de entrega" / "Bon de livraison" / "Lieferschein" / "Bon de Livraison" / "Bons de Livraison" → invoice_type = "albaran", operation_type = "no_aplica"
+- "Proforma" / "Factura Proforma" / "Pro forma Invoice" / "Pro-forma" / "Proforma Invoice" → invoice_type = "proforma", operation_type = "no_aplica"
+
+⚠️ CRÍTICO: Si el documento dice "Albarán" o "Proforma" en su título principal, clasifícalo INMEDIATAMENTE como tal, aunque el emisor sea Amazon u otra empresa conocida.
 
 **PASO 3 - Filtro de Documentos No-Factura (CRÍTICO - ejecutar ANTES del PASO 4):**
 Si no es ticket, ni albarán, ni proforma, ANTES de verificar si dice "Factura", comprueba si el TÍTULO PRINCIPAL o ENCABEZADO PRINCIPAL del documento es uno de estos tipos que NO son facturas. IMPORTANTE: aunque contengan la palabra "factura" en campos secundarios como "dirección de facturación", "datos de facturación", "bill to", "invoice address", etc., eso NO los convierte en factura.
@@ -58,11 +60,26 @@ Si no fue filtrado en los pasos anteriores, verifica si el término que identifi
 Si SÍ aparece uno de estos términos como TÍTULO PRINCIPAL → clasificar como Factura Emitida o Recibida.
 Si NO aparece ninguno como título principal → invoice_type = "no_es_factura", operation_type = "no_aplica".
 
-Si es PROFORMA, ALBARÁN, TICKET o NO ES FACTURA, responde SOLO con:
+Si es PROFORMA, ALBARÁN, TICKET o NO ES FACTURA, responde con el JSON COMPLETO incluyendo todos los campos de extracción (fecha, número, emisor, receptor, totales, etc.) para permitir la detección de duplicados:
 {
   "invoice_type": "ticket|proforma|albaran|no_es_factura",
   "operation_type": "ticket|no_aplica",
   "confidence": 0.95,
+  "idioma": "español",
+  "moneda": "EUR",
+  "fecha_factura": "YYYY-MM-DD",
+  "numero_factura": "XXX",
+  "subtotal": 100.00,
+  "impuestos": 21.00,
+  "porcentaje_iva": 21,
+  "total": 121.00,
+  "nombre_emisor": "Empresa Emisora S.L.",
+  "id_emisor": "B12345678",
+  "direccion_emisor": "Calle...",
+  "codigo_postal_emisor": "28001",
+  "nombre_receptor": "Empresa Receptora S.L.",
+  "id_receptor": "B87654321",
+  "descripcion": "Descripción breve",
   "reasoning": "Breve explicación en español"
 }
 
@@ -78,12 +95,21 @@ Si es PROFORMA, ALBARÁN, TICKET o NO ES FACTURA, responde SOLO con:
 
 **A. Prioridad por Texto Explícito (REGLAS ESTRICTAS):**
 
-⚠️ INVERSIÓN DEL SUJETO PASIVO: ÚNICAMENTE clasifica como "inversion_sujeto_pasivo" si el documento contiene EXPLÍCITAMENTE la frase legal: "Operación con inversión del sujeto pasivo conforme al Art. 84 (Uno. 2º) de la Ley 37/1992 de IVA" o una referencia directa y explícita al "Art. 84 LIVA" o "Reverse Charge (Art. 84 LIVA)". NO uses esta categoría solo porque no haya IVA o porque el proveedor sea extranjero.
+⚠️ INVERSIÓN DEL SUJETO PASIVO (MULTILINGUAL): Clasifica como "inversion_sujeto_pasivo" si el documento contiene CUALQUIERA de estas frases o equivalentes en CUALQUIER idioma:
+- Español: "inversión del sujeto pasivo", "sujeto pasivo", "Art. 84", "Art.84 LIVA"
+- Inglés: "reverse charge", "VAT reverse charge", "subject to reverse charge", "Article 196"
+- Francés: "autoliquidation", "auto-liquidation", "article 196"
+- Alemán: "Umkehrung der Steuerschuldnerschaft", "Reverse-Charge", "§13b UStG"
+- Italiano: "inversione contabile", "reverse charge"
+- Portugués: "autoliquidação", "inversão sujeito passivo"
+- Neerlandés: "verlegging btw", "btw verlegd"
+- Polaco: "odwrotne obciążenie"
+- Cualquier mención de "Article 196 of Council Directive 2008/112/EC" o equivalente
 
-- "Suplido" / "Gasto por cuenta del cliente" → **suplidos**
-- "Régimen especial agricultura" / "Compensación agraria" → **facturas_compensaciones_agrarias**
+- "Suplido" / "Gasto por cuenta del cliente" / "Disbursement" → **suplidos**
+- "Régimen especial agricultura" / "Compensación agraria" / "Agricultural compensation" → **facturas_compensaciones_agrarias**
 - "Kit Digital" / "Red.es" / "Acelera Pyme" → **kit_digital**
-- Factura de Amazon (emisor es Amazon, Amazon EU, Amazon Services, etc.) → **amazon**
+- Factura cuyo EMISOR es Amazon (Amazon EU, Amazon Services, Amazon Web Services, AWS, etc.) Y el tipo de documento es FACTURA (no albarán, no proforma) → **amazon**
 
 **B. Lógica Geográfica para FACTURAS RECIBIDAS:**
 Identifica el país del emisor (proveedor):
@@ -98,7 +124,7 @@ Identifica el país del emisor (proveedor):
   El NIF del emisor deberá validarse en el ROI (Registro de Operadores Intracomunitarios) y en VIES.
   Si el NIF UE NO está registrado en VIES → **no_registrado_vies**
 
-- **Extracomunitario (fuera UE: UK, Suiza, USA, Colombia, México, China, etc.):** Siempre **importaciones** (salvo ISP explícito con Art.84 LIVA).
+- **Extracomunitario (fuera UE: UK, Suiza, USA, Colombia, México, China, etc.):** Siempre **importaciones** (salvo ISP explícito).
 
 **C. Lógica Geográfica para FACTURAS EMITIDAS:**
 Identifica el país del receptor. Si el receptor tiene NIF de país UE (no ES), se verifica en VIES y ROI.
@@ -188,17 +214,13 @@ async function findMatchingAccount(
 }
 
 // Detect if this invoice is a duplicate of an existing classified invoice
+// Works for ALL invoice types (emitida, recibida, albaran, proforma, amazon)
 async function detectDuplicate(
   supabase: any,
   userId: string,
   invoiceId: string,
   classification: any
-): Promise<{ isDuplicate: boolean; originalId?: string; originalFileName?: string }> {
-  // Only check duplicates for emitida/recibida invoices with key financial data
-  if (!['emitida', 'recibida'].includes(classification.invoice_type)) {
-    return { isDuplicate: false };
-  }
-
+): Promise<{ isDuplicate: boolean; originalId?: string; originalFileName?: string; originalType?: string }> {
   const total = classification.total;
   const numeroFactura = classification.numero_factura ? String(classification.numero_factura).trim() : null;
   const idEmisor = classification.id_emisor ? String(classification.id_emisor).trim() : null;
@@ -246,10 +268,9 @@ async function detectDuplicate(
     if (fechaFactura && ed.fecha_factura && fechaFactura === ed.fecha_factura) matchScore += 1;
 
     // Threshold: invoice number match (4) + at least one more strong field (emisor=3 or total=2)
-    // Minimum to declare duplicate: same number + same emisor (score=7) OR same number + same total + same date (score=7)
     if (matchScore >= 7) {
       console.log(`DUPLICATE DETECTED: Invoice ${invoiceId} (nº ${numeroFactura}) matches ${existing.id} (score: ${matchScore})`);
-      return { isDuplicate: true, originalId: existing.id, originalFileName: existing.file_name };
+      return { isDuplicate: true, originalId: existing.id, originalFileName: existing.file_name, originalType: existing.invoice_type };
     } else {
       console.log(`DUPLICATE CHECK: Invoice number matches but other fields differ — NOT a duplicate. Invoice ${invoiceId} vs ${existing.id} (score: ${matchScore})`);
     }
@@ -429,7 +450,7 @@ serve(async (req) => {
               {
                 parts: [
                   { text: systemPrompt },
-                  { text: "Analiza esta factura. PRIMERO verifica si es una PROFORMA o un ALBARÁN. Si no lo es, extrae toda la información. Presta especial atención al LOGO para identificar al emisor:" },
+                  { text: "Analiza este documento. PRIMERO verifica si es ALBARÁN o PROFORMA (tienen prioridad sobre Amazon). Si no lo es, extrae toda la información. Presta especial atención al LOGO para identificar al emisor:" },
                   { inline_data: { mime_type: mimeType, data: base64Data } },
                 ],
               },
@@ -476,26 +497,91 @@ serve(async (req) => {
       throw new Error("Invalid AI response format");
     }
 
-    // Handle proforma, albaran and no_es_factura - minimal data needed
-    if (classification.invoice_type === 'proforma' || classification.invoice_type === 'albaran' || classification.invoice_type === 'no_es_factura') {
+    // Helper: build extracted_data object from classification fields
+    const buildExtractedData = (c: any) => ({
+      idioma: c.idioma,
+      moneda: c.moneda,
+      fecha_factura: c.fecha_factura,
+      numero_factura: c.numero_factura,
+      subtotal: c.subtotal,
+      impuestos: c.impuestos,
+      porcentaje_iva: c.porcentaje_iva,
+      total: c.total,
+      nombre_emisor: c.nombre_emisor,
+      id_emisor: c.id_emisor,
+      direccion_emisor: c.direccion_emisor,
+      codigo_postal_emisor: c.codigo_postal_emisor,
+      nombre_receptor: c.nombre_receptor,
+      id_receptor: c.id_receptor,
+      direccion_receptor: c.direccion_receptor,
+      codigo_postal_receptor: c.codigo_postal_receptor,
+      descripcion: c.descripcion,
+      factura_exenta: c.factura_exenta,
+      motivo_exencion: c.motivo_exencion,
+    });
+
+    // Handle proforma, albaran, amazon and no_es_factura
+    // These types are classified immediately but we still extract data and check duplicates
+    const EARLY_EXIT_TYPES = ['proforma', 'albaran', 'amazon', 'no_es_factura'];
+    
+    if (EARLY_EXIT_TYPES.includes(classification.invoice_type)) {
       const docType = classification.invoice_type;
       const docLabels: Record<string, string> = {
         proforma: 'proforma',
         albaran: 'albarán',
+        amazon: 'Amazon',
         no_es_factura: 'no es factura',
       };
       const docLabel = docLabels[docType] || docType;
+
+      // For proforma, albaran, and amazon: check for duplicates using extracted data
+      if (['proforma', 'albaran', 'amazon'].includes(docType)) {
+        const duplicateCheck = await detectDuplicate(supabase, invoice.user_id, invoiceId, classification);
+        
+        if (duplicateCheck.isDuplicate) {
+          const originalTypeLabel = duplicateCheck.originalType ? 
+            (docLabels[duplicateCheck.originalType] || duplicateCheck.originalType) : 'desconocido';
+          const dupReasoning = `Documento duplicado de "${duplicateCheck.originalFileName}" (tipo original: ${originalTypeLabel}). ${classification.reasoning || ''}`;
+          
+          await supabase
+            .from("invoices")
+            .update({
+              invoice_type: 'duplicada',
+              operation_type: 'no_aplica',
+              classification_status: "classified",
+              assigned_account: null,
+              classification_details: {
+                confidence: classification.confidence || 0.95,
+                raw_response: content,
+                reasoning: dupReasoning,
+                duplicate_of_id: duplicateCheck.originalId,
+                duplicate_of_name: duplicateCheck.originalFileName,
+                original_type_would_be: docType,
+                extracted_data: buildExtractedData(classification),
+              },
+            })
+            .eq("id", invoiceId);
+
+          return new Response(
+            JSON.stringify({ success: true, classification: { ...classification, invoice_type: 'duplicada' }, duplicate_of: duplicateCheck.originalId }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // Not a duplicate — save with extracted data for future duplicate detection
       const { error: updateError } = await supabase
         .from("invoices")
         .update({
           invoice_type: docType,
-          operation_type: 'no_aplica',
+          operation_type: docType === 'amazon' ? 'amazon' : 'no_aplica',
           classification_status: "classified",
           assigned_account: null,
           classification_details: {
             confidence: classification.confidence || 0.95,
             raw_response: content,
             reasoning: classification.reasoning || `Documento identificado como ${docLabel}`,
+            extracted_data: buildExtractedData(classification),
           },
         })
         .eq("id", invoiceId);
@@ -549,15 +635,25 @@ serve(async (req) => {
       'prestaciones_servicios_intracomunitarias': 'adquisiciones_intracomunitarias_servicios',
       'servicios_intracomunitarios': 'adquisiciones_intracomunitarias_servicios',
       'servicio_intracomunitario': 'adquisiciones_intracomunitarias_servicios',
-      // Generic intracomunitaria (no bienes/servicios specified) — default to servicios for emitidas, bienes for recibidas handled below
+      // Generic intracomunitaria
       'operacion_intracomunitaria': 'adquisiciones_intracomunitarias_servicios',
       'operaciones_intracomunitarias': 'adquisiciones_intracomunitarias_bienes',
       'intracomunitaria': 'adquisiciones_intracomunitarias_bienes',
       'intracomunitario': 'adquisiciones_intracomunitarias_bienes',
-      // ISP variants
+      // ISP variants (multilingual)
       'inversion_del_sujeto_pasivo': 'inversion_sujeto_pasivo',
       'isp': 'inversion_sujeto_pasivo',
       'reverse_charge': 'inversion_sujeto_pasivo',
+      'autoliquidacion': 'inversion_sujeto_pasivo',
+      'auto_liquidacion': 'inversion_sujeto_pasivo',
+      'autoliquidação': 'inversion_sujeto_pasivo',
+      'inversione_contabile': 'inversion_sujeto_pasivo',
+      'verlegging_btw': 'inversion_sujeto_pasivo',
+      'btw_verlegd': 'inversion_sujeto_pasivo',
+      'odwrotne_obciazenie': 'inversion_sujeto_pasivo',
+      'umkehrung_der_steuerschuldnerschaft': 'inversion_sujeto_pasivo',
+      'reverse_charge_article_196': 'inversion_sujeto_pasivo',
+      'article_196': 'inversion_sujeto_pasivo',
       // IVA deducible variants
       'interior_iva_deducible': 'interiores_iva_deducible',
       'interiores_con_iva': 'interiores_iva_deducible',
@@ -581,6 +677,8 @@ serve(async (req) => {
       // Amazon
       'amazon_eu': 'amazon',
       'amazon_services': 'amazon',
+      'amazon_web_services': 'amazon',
+      'aws': 'amazon',
       // No aplica
       'no_aplica_iva': 'no_aplica',
       'exenta': 'no_aplica',
@@ -681,21 +779,42 @@ serve(async (req) => {
     if (classification.operation_type === 'inversion_sujeto_pasivo') {
       const rawLower = (content || '').toLowerCase();
       const reasoningLower = (classification.reasoning || '').toLowerCase();
-      const hasLegalText = rawLower.includes('art. 84') || rawLower.includes('art.84') || 
-        rawLower.includes('84 (uno') || reasoningLower.includes('art. 84') ||
-        rawLower.includes('reverse charge') || rawLower.includes('inversión del sujeto pasivo');
       
-      if (!hasLegalText) {
-        console.log('ISP POST-VALIDATION: No legal text found. Re-evaluating operation type.');
+      // Multilingual ISP indicators
+      const ispIndicators = [
+        // Spanish
+        'inversión del sujeto pasivo', 'inversion del sujeto pasivo', 'sujeto pasivo',
+        'art. 84', 'art.84', '84 (uno', 'artículo 84', 'articulo 84',
+        // English
+        'reverse charge', 'vat reverse charge', 'subject to reverse charge',
+        'article 196', 'art. 196', 'directive 2008',
+        // French
+        'autoliquidation', 'auto-liquidation', 'article 196',
+        // German
+        'reverse-charge', 'umkehrung', '§13b',
+        // Italian
+        'inversione contabile',
+        // Portuguese
+        'autoliquidação', 'inversão',
+        // Dutch
+        'btw verlegd', 'verlegging',
+        // Polish
+        'odwrotne',
+      ];
+      
+      const hasISPIndicator = ispIndicators.some(ind => rawLower.includes(ind) || reasoningLower.includes(ind));
+      
+      if (!hasISPIndicator) {
+        console.log('ISP POST-VALIDATION: No ISP indicator found in any language. Re-evaluating operation type.');
         // Re-classify based on geography
         const emisorAddr = (classification.direccion_emisor || '').toLowerCase();
         const isExtracom = EXTRACOM_KEYWORDS.some(kw => emisorAddr.includes(kw));
         if (isExtracom && classification.invoice_type === 'recibida') {
           classification.operation_type = 'importaciones';
-          classification.reasoning = (classification.reasoning || '') + ' [Corrección ISP: sin texto legal Art.84, reclasificado como importaciones por origen extracomunitario.]';
+          classification.reasoning = (classification.reasoning || '') + ' [Corrección ISP: sin indicador multilingüe de ISP, reclasificado como importaciones por origen extracomunitario.]';
         } else {
           classification.operation_type = 'otro';
-          classification.reasoning = (classification.reasoning || '') + ' [Corrección ISP: sin texto legal explícito Art.84 LIVA, reclasificado como otro.]';
+          classification.reasoning = (classification.reasoning || '') + ' [Corrección ISP: sin indicador de inversión del sujeto pasivo en ningún idioma, reclasificado como otro.]';
         }
       }
     }
@@ -730,16 +849,19 @@ serve(async (req) => {
       }
 
       if (nifToValidate) {
+        // Clean the NIF: remove spaces, dashes, dots
         const nifClean = nifToValidate.replace(/[\s\-\.]/g, '').toUpperCase();
         let cc = nifClean.substring(0, 2);
-        const vatNum = nifClean.substring(2);
+        let vatNum = nifClean.substring(2);
 
         if (cc === 'GR') cc = 'EL';
         const isEuNif = EU_COUNTRY_CODES.includes(cc) && cc !== 'ES';
 
+        // If the prefix is NOT a valid EU country code, the NIF might lack country prefix
+        // (e.g. "B29731668" instead of "ESB29731668") — skip VIES for Spanish NIFs
         if (isEuNif && vatNum.length > 0) {
           try {
-            console.log(`VIES validation for ${cc}${vatNum}...`);
+            console.log(`VIES validation for country=${cc}, vatNumber=${vatNum}...`);
             const soapEnvelope = `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:ec.europa.eu:taxud:vies:services:checkVat:types">
   <soapenv:Body>
@@ -765,11 +887,11 @@ serve(async (req) => {
               const isValid = validMatch ? validMatch[1] === "true" : false;
 
               if (!isValid) {
-                console.log(`VIES: NIF ${cc}${vatNum} NOT registered. Setting operation to no_registrado_vies.`);
+                console.log(`VIES: NIF ${cc}/${vatNum} NOT registered. Setting operation to no_registrado_vies.`);
                 classification.operation_type = 'no_registrado_vies';
                 classification.reasoning = (classification.reasoning || '') + ` [VIES/ROI: NIF ${cc}${vatNum} no registrado en VIES ni en el ROI (Registro de Operadores Intracomunitarios).]`;
               } else {
-                console.log(`VIES: NIF ${cc}${vatNum} is registered.`);
+                console.log(`VIES: NIF ${cc}/${vatNum} is registered.`);
                 classification.reasoning = (classification.reasoning || '') + ` [VIES/ROI: NIF ${cc}${vatNum} verificado y registrado en VIES y ROI.]`;
               }
             } else {
@@ -801,27 +923,7 @@ serve(async (req) => {
             reasoning: dupReasoning,
             duplicate_of_id: duplicateCheck.originalId,
             duplicate_of_name: duplicateCheck.originalFileName,
-            extracted_data: {
-              idioma: classification.idioma,
-              moneda: classification.moneda,
-              fecha_factura: classification.fecha_factura,
-              numero_factura: classification.numero_factura,
-              subtotal: classification.subtotal,
-              impuestos: classification.impuestos,
-              porcentaje_iva: classification.porcentaje_iva,
-              total: classification.total,
-              nombre_emisor: classification.nombre_emisor,
-              id_emisor: classification.id_emisor,
-              direccion_emisor: classification.direccion_emisor,
-              codigo_postal_emisor: classification.codigo_postal_emisor,
-              nombre_receptor: classification.nombre_receptor,
-              id_receptor: classification.id_receptor,
-              direccion_receptor: classification.direccion_receptor,
-              codigo_postal_receptor: classification.codigo_postal_receptor,
-              descripcion: classification.descripcion,
-              factura_exenta: classification.factura_exenta,
-              motivo_exencion: classification.motivo_exencion,
-            },
+            extracted_data: buildExtractedData(classification),
           },
         })
         .eq("id", invoiceId);
@@ -858,27 +960,7 @@ serve(async (req) => {
           raw_response: content,
           reasoning: classification.reasoning,
           logo_detected: classification.logo_detected,
-          extracted_data: {
-            idioma: classification.idioma,
-            moneda: classification.moneda,
-            fecha_factura: classification.fecha_factura,
-            numero_factura: classification.numero_factura,
-            subtotal: classification.subtotal,
-            impuestos: classification.impuestos,
-            porcentaje_iva: classification.porcentaje_iva,
-            total: classification.total,
-            nombre_emisor: classification.nombre_emisor,
-            id_emisor: classification.id_emisor,
-            direccion_emisor: classification.direccion_emisor,
-            codigo_postal_emisor: classification.codigo_postal_emisor,
-            nombre_receptor: classification.nombre_receptor,
-            id_receptor: classification.id_receptor,
-            direccion_receptor: classification.direccion_receptor,
-            codigo_postal_receptor: classification.codigo_postal_receptor,
-            descripcion: classification.descripcion,
-            factura_exenta: classification.factura_exenta,
-            motivo_exencion: classification.motivo_exencion,
-          },
+          extracted_data: buildExtractedData(classification),
         },
       })
       .eq("id", invoiceId);
