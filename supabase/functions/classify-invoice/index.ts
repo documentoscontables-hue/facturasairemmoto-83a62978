@@ -253,7 +253,9 @@ async function detectDuplicate(
     return { isDuplicate: false };
   }
 
-  console.log(`DUPLICATE CHECK: Comparing invoice ${invoiceId} (nº ${numeroFactura}, emisor ${idEmisor}, total ${total}, fecha ${fechaFactura}) against ${existingInvoices.length} existing invoices`);
+  const nombreEmisor = classification.nombre_emisor ? String(classification.nombre_emisor).trim().toLowerCase() : null;
+
+  console.log(`DUPLICATE CHECK: Comparing invoice ${invoiceId} (nº ${numeroFactura}, id_emisor ${idEmisor}, nombre_emisor ${nombreEmisor}, total ${total}, fecha ${fechaFactura}) against ${existingInvoices.length} existing invoices`);
 
   for (const existing of existingInvoices) {
     const details = existing.classification_details;
@@ -261,23 +263,41 @@ async function detectDuplicate(
 
     const ed = details.extracted_data;
     const edNumero = ed.numero_factura ? String(ed.numero_factura).trim() : null;
-    const edEmisor = ed.id_emisor ? String(ed.id_emisor).trim() : null;
+    const edIdEmisor = ed.id_emisor ? String(ed.id_emisor).trim() : null;
+    const edNombreEmisor = ed.nombre_emisor ? String(ed.nombre_emisor).trim().toLowerCase() : null;
 
     // Invoice number MUST match — without this, we never declare a duplicate.
-    // Different invoices from the same issuer share emisor+fecha but have different numbers.
     if (!edNumero || numeroFactura !== edNumero) continue;
 
     let matchScore = 4; // Invoice number already matched — base score
-    if (idEmisor && edEmisor && idEmisor === edEmisor) matchScore += 3;
-    if (total && ed.total && Math.abs(Number(total) - Number(ed.total)) < 0.01) matchScore += 2;
+
+    // Emisor: prefer id_emisor (NIF), fallback to nombre_emisor for docs without NIF (albaranes, etc.)
+    if (idEmisor && edIdEmisor && idEmisor === edIdEmisor) {
+      matchScore += 3; // Exact NIF match
+    } else if (!idEmisor && !edIdEmisor && nombreEmisor && edNombreEmisor &&
+               (nombreEmisor.includes(edNombreEmisor) || edNombreEmisor.includes(nombreEmisor))) {
+      matchScore += 3; // Both lack NIF but name matches (common in albaranes)
+    } else if (nombreEmisor && edNombreEmisor &&
+               (nombreEmisor.includes(edNombreEmisor) || edNombreEmisor.includes(nombreEmisor))) {
+      matchScore += 2; // Name match when NIF is only available on one side
+    }
+
+    // Total match (with null-tolerance: two nulls count as matching for docs without amounts)
+    if (total != null && ed.total != null) {
+      if (Math.abs(Number(total) - Number(ed.total)) < 0.01) matchScore += 2;
+    } else if (total == null && ed.total == null) {
+      matchScore += 1; // Both have no total (typical for albaranes without prices)
+    }
+
+    // Date match
     if (fechaFactura && ed.fecha_factura && fechaFactura === ed.fecha_factura) matchScore += 1;
 
-    // Threshold: invoice number match (4) + at least one more strong field (emisor=3 or total=2)
+    // Threshold: invoice number (4) + at least emisor match (3) reaches 7
     if (matchScore >= 7) {
       console.log(`DUPLICATE DETECTED: Invoice ${invoiceId} (nº ${numeroFactura}) matches ${existing.id} (score: ${matchScore})`);
       return { isDuplicate: true, originalId: existing.id, originalFileName: existing.file_name, originalType: existing.invoice_type };
     } else {
-      console.log(`DUPLICATE CHECK: Invoice number matches but other fields differ — NOT a duplicate. Invoice ${invoiceId} vs ${existing.id} (score: ${matchScore})`);
+      console.log(`DUPLICATE CHECK: Invoice number matches but score too low (${matchScore}/7) — NOT a duplicate. Invoice ${invoiceId} vs ${existing.id}`);
     }
   }
 
