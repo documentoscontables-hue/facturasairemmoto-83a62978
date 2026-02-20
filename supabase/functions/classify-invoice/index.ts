@@ -20,12 +20,17 @@ Evalúa cada documento siguiendo este orden estricto:
 Busca en el documento impreso tanto el Nombre del Cliente ({{CLIENT_NAME}}) como el NIF/CIF del Cliente ({{CLIENT_NIT}}).
 - **Regla ABSOLUTA:** Si NI el nombre NI el NIF/CIF del cliente aparecen impresos en el documento, clasifícalo inmediatamente como **Ticket** (invoice_type = "ticket", operation_type = "ticket"). Esta regla NO tiene excepciones: aunque el documento diga "Factura", "Proforma" o "Albarán", si no aparecen los datos del cliente, es Ticket.
 
-**PASO 2 - Documentos Provisionales (PRIORIDAD ALTA - verificar ANTES de Amazon):**
-Si se identifica al cliente (por nombre o NIF/CIF), verifica si el documento indica:
-- "Albarán" / "Delivery Note" / "Packing Slip" / "Nota de entrega" / "Bon de livraison" / "Lieferschein" / "Bon de Livraison" / "Bons de Livraison" → invoice_type = "albaran", operation_type = "no_aplica"
-- "Proforma" / "Factura Proforma" / "Pro forma Invoice" / "Pro-forma" / "Proforma Invoice" → invoice_type = "proforma", operation_type = "no_aplica"
+**PASO 2 - Documentos Provisionales y Amazon (PRIORIDAD ALTA):**
+Si se identifica al cliente (por nombre o NIF/CIF), verifica en este orden estricto:
 
-⚠️ CRÍTICO: Si el documento dice "Albarán" o "Proforma" en su título principal, clasifícalo INMEDIATAMENTE como tal, aunque el emisor sea Amazon u otra empresa conocida.
+2a. **Albarán/Proforma primero:** Si el TÍTULO PRINCIPAL del documento indica:
+- "Albarán" / "Delivery Note" / "Packing Slip" / "Nota de entrega" / "Bon de livraison" / "Lieferschein" → invoice_type = "albaran", operation_type = "no_aplica"
+- "Proforma" / "Factura Proforma" / "Pro forma Invoice" / "Pro-forma" → invoice_type = "proforma", operation_type = "no_aplica"
+→ Clasifícalo INMEDIATAMENTE aunque el emisor sea Amazon u otra empresa conocida.
+
+2b. **Amazon (si NO es albarán ni proforma):** Si en CUALQUIER PARTE del documento aparece el nombre "Amazon", "Amazon EU", "Amazon Services", "Amazon Web Services", "AWS", "Amazon Payments" o cualquier variante de Amazon como emisor, proveedor o nombre de empresa → invoice_type = "amazon", operation_type = "amazon".
+→ Esta regla se aplica SOLO si el documento NO es un albarán ni una proforma.
+→ No importa el tipo de documento (factura, recibo, etc.): si Amazon aparece como emisor o en el membrete, es amazon.
 
 **PASO 3 - Filtro de Documentos No-Factura (CRÍTICO - ejecutar ANTES del PASO 4):**
 Si no es ticket, ni albarán, ni proforma, ANTES de verificar si dice "Factura", comprueba si el TÍTULO PRINCIPAL o ENCABEZADO PRINCIPAL del documento es uno de estos tipos que NO son facturas. IMPORTANTE: aunque contengan la palabra "factura" en campos secundarios como "dirección de facturación", "datos de facturación", "bill to", "invoice address", etc., eso NO los convierte en factura.
