@@ -166,6 +166,7 @@ export function UserManagement() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <Card className="glass-card">
