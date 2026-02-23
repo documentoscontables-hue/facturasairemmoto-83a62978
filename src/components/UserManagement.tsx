@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2, Plus, Trash2, UserPlus } from 'lucide-react';
+import { BulkUserImport } from './BulkUserImport';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -92,13 +93,15 @@ export function UserManagement() {
           <h2 className="text-xl font-bold">Gestión de Usuarios</h2>
           <p className="text-muted-foreground text-sm">Crear, editar y eliminar usuarios del sistema</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="gradient-primary">
-              <UserPlus className="w-4 h-4 mr-2" />
-              Crear Usuario
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2">
+          <BulkUserImport />
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="gradient-primary">
+                <UserPlus className="w-4 h-4 mr-2" />
+                Crear Usuario
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Crear Nuevo Usuario</DialogTitle>
@@ -163,6 +166,7 @@ export function UserManagement() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <Card className="glass-card">
