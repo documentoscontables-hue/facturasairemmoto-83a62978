@@ -93,13 +93,15 @@ export function UserManagement() {
           <h2 className="text-xl font-bold">Gestión de Usuarios</h2>
           <p className="text-muted-foreground text-sm">Crear, editar y eliminar usuarios del sistema</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="gradient-primary">
-              <UserPlus className="w-4 h-4 mr-2" />
-              Crear Usuario
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2">
+          <BulkUserImport />
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="gradient-primary">
+                <UserPlus className="w-4 h-4 mr-2" />
+                Crear Usuario
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Crear Nuevo Usuario</DialogTitle>
